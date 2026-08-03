@@ -1,0 +1,86 @@
+feature: 2026-08-03-relay-compatibility-suite
+created: 2026-08-03
+
+steps:
+  - action: "编排骨架：建立 opt-in Compatibility Run、临时目录、端口、阶段超时和真实 Cloud/Node 进程管理"
+    exit_signal: "显式命令能构建并启动两个二进制且可靠清理，默认 go test ./... 只 skip 重型场景"
+    status: done
+
+  - action: "绑定计算节点：解析 CLI 绑定观察、管理员登录确认并等待真实 Connector"
+    exit_signal: "未修改 CLI 完成 pending 到 confirmed，Public Route /health 返回 Node 的 ok"
+    status: done
+
+  - action: "HTTP 与静态计算节点：验证 fixture、method/query/body 和 relayed asset rewrite"
+    exit_signal: "真实 Node 的静态内容和 HTTP API 经 Public Route 保持，错误 Header 值可被测试发现"
+    status: done
+
+  - action: "E2EE 计算节点：独立实现 open、protected HTTP 和 encrypted WebSocket ping/pong"
+    exit_signal: "密文可在测试端解密，proof 使用 Node canonical path，WS pong 顺序正确"
+    status: done
+
+  - action: "重连与生命周期：复用 SQLite/config 重启 Test Cloud并验证 Node 自动重连和清理"
+    exit_signal: "不重新绑定即可恢复 Public Route，测试结束无残留监听端口和子进程"
+    status: done
+
+  - action: "完整验证：补齐错误、脱敏、只读边界和预构建 binary override"
+    exit_signal: "全部验收场景有证据，兼容命令通过，普通 cloud tests、race 和 vet 继续通过"
+    status: done
+
+checks:
+  - item: "Compatibility Suite 默认 opt-in，未设置 MINDFS_RUN_COMPAT 时明确 skip"
+    source: 挂载点
+    status: passed
+  - item: "MINDFS_COMPAT_NODE_BINARY 可覆盖当前 checkout 的 Node build"
+    source: 挂载点
+    status: passed
+  - item: "Test Cloud 与 Test Node 均以真实二进制和真实 TCP 运行"
+    source: 编排骨架
+    status: passed
+  - item: "每次 run 使用独立 HOME、DataDir、Node root、static fixture 和 loopback 端口"
+    source: 流程级约束
+    status: passed
+  - item: "CLI 输出按流解析且日志不泄露 bind code、pairing secret、Token 或密文"
+    source: 流程级约束
+    status: passed
+  - item: "管理员确认后未修改 Node 建立 Connector，Public Route /health 返回 ok"
+    source: 验收场景
+    status: passed
+  - item: "Public Route 返回 Node fixture index 和 asset，并重写 ./assets/ 为 /mindfs-assets/"
+    source: 验收场景
+    status: passed
+  - item: "HTTP method、query、body 通过 Public Route 保持且 Node canonical path 无 Relay 前缀"
+    source: 验收场景
+    status: passed
+  - item: "E2EE Test Client 独立完成 open、server proof 校验和 32 字节 key 派生"
+    source: 名词契约
+    status: passed
+  - item: "Protected HTTP response envelope 可解密为预期 JSON"
+    source: 验收场景
+    status: passed
+  - item: "Encrypted WebSocket ping 收到匹配 request ID 的可解密 pong"
+    source: 验收场景
+    status: passed
+  - item: "Cloud 使用同一地址、DataDir 和 Token Key 重启后 Node 无需重新绑定即可重连"
+    source: 验收场景
+    status: passed
+  - item: "所有进程、连接、reader 和临时目录在成功、失败和取消路径均被清理"
+    source: 流程级约束
+    status: passed
+  - item: "Suite 只连接 loopback，并通过代理环境阻断无关外部 HTTP(S)"
+    source: 范围守护
+    status: passed
+  - item: "收紧 PATH 后不启动 codex、claude、gemini 等真实 Agent"
+    source: 范围守护
+    status: passed
+  - item: "cloud/compat 不 import mindfs/server/internal、mindfs/server/app 或根 module 包"
+    source: 范围守护
+    status: passed
+  - item: "git diff 不包含 server、web、cli、android、harmony 和根构建文件"
+    source: 范围守护
+    status: passed
+  - item: "本 feature 不新增生产路由、schema、配置键、部署文件或跨版本矩阵"
+    source: 范围守护
+    status: passed
+  - item: "Compatibility Suite 暴露的生产协议缺陷通过独立 issue 修复并回归"
+    source: 验收场景
+    status: passed

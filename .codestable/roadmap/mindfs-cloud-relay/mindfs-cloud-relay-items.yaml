@@ -1,0 +1,171 @@
+roadmap: mindfs-cloud-relay
+created: 2026-08-03
+
+items:
+  - slug: relay-core-single-instance
+    description: "在独立 cloud Go module 中实现单实例绑定、Connector、yamux、HTTP/WS 和 E2EE 透传"
+    depends_on: []
+    status: done
+    feature: 2026-08-03-relay-core-single-instance
+    minimal_loop: true
+    notes: "V0；只新增 cloud/**；device token 按 roadmap 使用独立 Token Key 做确定性 HMAC 派生且数据库只存 hash"
+
+  - slug: relay-compatibility-suite
+    description: "从 cloud 侧建立覆盖绑定、Connector、HTTP、WebSocket、重连和 E2EE 的黑盒兼容测试"
+    depends_on: [relay-core-single-instance]
+    status: done
+    feature: 2026-08-03-relay-compatibility-suite
+    minimal_loop: false
+    notes: "V0；不得修改或向 server、web、cli 和根模块写入测试代码"
+
+  - slug: relay-deployment-baseline
+    description: "提供 cloud 独立容器、配置校验、迁移、健康检查、TLS 反代示例和 SQLite 备份"
+    depends_on: [relay-core-single-instance, relay-compatibility-suite]
+    status: done
+    feature: 2026-08-03-relay-deployment-baseline
+    minimal_loop: false
+    notes: "V0；cloud 使用独立 go.mod，不修改根 go.mod 和 Makefile；容器只读托管当前 checkout web/dist 的 /mindfs-assets"
+
+  - slug: cloud-node-management
+    description: "提供节点列表、在线状态、重命名、Token 轮换、撤销和删除后端 API"
+    depends_on: [relay-core-single-instance]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V1；不开发或修改现有 MindFS 前端"
+
+  - slug: relay-security-audit
+    description: "完善认证、CSRF、限流、请求上限、Token 安全、审计日志和敏感信息清洗"
+    depends_on: [relay-core-single-instance, cloud-node-management]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V1；节点管理动作是安全审计的主要资源对象"
+
+  - slug: relay-local-service-domains
+    description: "实现本地附加服务注册、wildcard DNS/TLS 和 service hostname 转发"
+    depends_on: [relay-core-single-instance, relay-deployment-baseline, relay-security-audit]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V1；只实现现有客户端已经调用的云端服务协议"
+
+  - slug: cloud-account-tenancy
+    description: "实现用户、租户、OIDC、本地登录和角色权限后端 API"
+    depends_on: [cloud-node-management, relay-security-audit]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；不修改或扩展现有 MindFS 前端"
+
+  - slug: cloud-node-sharing
+    description: "实现节点共享邀请、ACL、访问模式和共享撤销后端 API"
+    depends_on: [cloud-node-management, cloud-account-tenancy]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；依赖稳定的节点资源和用户主体"
+
+  - slug: relay-postgres-control-plane
+    description: "将用户、节点、绑定、服务和审计控制面迁移到 PostgreSQL"
+    depends_on: [relay-deployment-baseline, cloud-account-tenancy]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；迁移只发生在 cloud 数据模型内"
+
+  - slug: relay-distributed-routing
+    description: "实现 Redis presence、Connector owner 租约和跨实例 stream 转发"
+    depends_on: [relay-security-audit, relay-postgres-control-plane]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；依赖共享控制面和内部实例鉴权"
+
+  - slug: relay-usage-quotas
+    description: "统计节点流量、并发、连接时长并执行租户和节点配额"
+    depends_on: [cloud-account-tenancy, relay-distributed-routing]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；多实例下统一聚合使用量"
+
+  - slug: cloud-operations-observability
+    description: "提供指标、追踪、告警、SLO、运营管理 API 和滥用处理能力"
+    depends_on: [relay-security-audit, relay-distributed-routing, relay-usage-quotas]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；只提供后端 API 和标准观测接口，不开发管理前端"
+
+  - slug: token-station-account-ledger
+    description: "实现 Token Station 账户、余额、额度台账和 API Key 生命周期"
+    depends_on: [cloud-account-tenancy, relay-postgres-control-plane, relay-usage-quotas]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；依赖租户、可靠事务存储和计量基础"
+
+  - slug: token-station-model-gateway
+    description: "实现 OpenAI、Anthropic 和 Gemini 兼容模型网关及流式计量"
+    depends_on: [token-station-account-ledger]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；调用费用必须幂等写入账户台账"
+
+  - slug: token-station-billing
+    description: "实现钱包、充值订单、支付适配器和幂等支付回调"
+    depends_on: [token-station-account-ledger]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；支付结果写入统一余额台账"
+
+  - slug: hosted-agent-config
+    description: "实现 Agent 配置修订、发布、回滚和兼容现有客户端的 /api/agents"
+    depends_on: [cloud-account-tenancy, relay-postgres-control-plane]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；只提供公共兼容后端接口，不修改 agents.json 或客户端加载逻辑"
+
+  - slug: cloud-tips-content
+    description: "实现 Tips 内容存储、投放规则和兼容现有客户端的 /api/tips"
+    depends_on: [cloud-account-tenancy, relay-postgres-control-plane]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；不修改现有 Tips 客户端"
+
+  - slug: release-distribution
+    description: "实现 Android/Harmony 版本接口、制品元数据、校验和和下载镜像"
+    depends_on: [relay-deployment-baseline, cloud-account-tenancy, relay-postgres-control-plane]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；不修改移动端版本检查代码或应用签名流程"
+
+  - slug: cloud-backup-recovery
+    description: "实现数据库、Redis 元数据、内容配置和发布制品的备份恢复及灾备演练"
+    depends_on: [relay-postgres-control-plane, relay-distributed-routing, token-station-account-ledger, hosted-agent-config, cloud-tips-content, release-distribution]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；所有备份对象均属于 cloud"
+
+  - slug: cloud-api-lifecycle
+    description: "建立未修改客户端兼容矩阵、API 版本策略、弃用窗口和跨版本回归测试"
+    depends_on: [relay-compatibility-suite, relay-security-audit, relay-local-service-domains, token-station-model-gateway, hosted-agent-config, cloud-tips-content, release-distribution]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V3；上游协议变化时只修改 cloud 适配"
+
+  - slug: relay-custom-domains
+    description: "实现节点和附加服务的自定义域名、所有权验证及证书生命周期"
+    depends_on: [relay-local-service-domains, cloud-node-sharing, relay-distributed-routing]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V2；依赖域名网关、访问权限和多实例路由"

@@ -1,0 +1,69 @@
+feature: 2026-08-03-relay-deployment-baseline
+created: 2026-08-03
+
+steps:
+  - action: "配置与 Ops 编排骨架：接入 required assets config 和 command dispatch，保留默认 serve"
+    exit_signal: "validate、migrate、serve 分支可执行，错误配置在监听前失败"
+    status: done
+  - action: "Readiness 与 assets 计算节点：接通 DB/assets readiness 和安全静态资源路由"
+    exit_signal: "ready/unready 与资源 200/404/防遍历均有测试"
+    status: done
+  - action: "Metrics 计算节点：接入低敏 HTTP 聚合指标和 Prometheus 输出"
+    exit_signal: "请求计数、status、duration 可观察且不含 path、query、secret"
+    status: done
+  - action: "SQLite backup 计算节点：实现在线快照、目标守护和 integrity verify"
+    exit_signal: "有写入负载时备份可打开且数据一致，错误目标不覆盖"
+    status: done
+  - action: "Container Stack：构建 Web + Cloud non-root 镜像，提供 Compose、Caddy、env、healthcheck 和 backup 操作"
+    exit_signal: "配置文件静态校验通过；Docker 可用时镜像构建和启动探活通过"
+    status: done
+  - action: "完整验证：回跑 compatibility、race、vet、backup restore 和上游只读边界"
+    exit_signal: "V0 所有验收场景有证据，git 变更只在 cloud/** 与 .codestable/**"
+    status: done
+
+checks:
+  - item: "Config 新增 required MINDFS_CLOUD_ASSETS_DIR 并校验 index.html 与 assets 目录"
+    source: 名词契约
+    status: passed
+  - item: "Ops Command 包含 validate、migrate、backup、healthcheck、serve 且默认仍为 serve"
+    source: 名词契约
+    status: passed
+  - item: "healthz 只表示存活，readyz 每次检查 SQLite 与 Asset Bundle"
+    source: 流程级约束
+    status: passed
+  - item: "metrics 只暴露低敏聚合值且不记录 path、query、body 或 secret"
+    source: 流程级约束
+    status: passed
+  - item: "SQLite backup 使用在线一致性快照、目标不覆盖并执行 integrity check"
+    source: 流程级约束
+    status: passed
+  - item: "mindfs-assets 只读托管 Asset Bundle 的 assets 子目录并防路径越界"
+    source: 验收场景
+    status: passed
+  - item: "Dockerfile 从仓库根构建现有 Web 和独立 Cloud，最终镜像 non-root"
+    source: 挂载点
+    status: passed
+  - item: "cloud/deploy 提供 Compose、Caddy、env 和运维说明"
+    source: 挂载点
+    status: passed
+  - item: "validate/migrate/backup/healthcheck 错误均非 0 且不启动服务"
+    source: 验收场景
+    status: passed
+  - item: "完整配置 serve 后 healthz、readyz、metrics 和 existing asset 均成功"
+    source: 验收场景
+    status: passed
+  - item: "SIGTERM 保持 10 秒优雅关闭并释放 SQLite"
+    source: 验收场景
+    status: passed
+  - item: "Caddy 保留 Host、Proto 和 WebSocket Upgrade，public https 生成 wss endpoint"
+    source: 验收场景
+    status: passed
+  - item: "不修改上游只读路径且 Docker build 不向 workspace 写 web/dist"
+    source: 范围守护
+    status: passed
+  - item: "不新增 PostgreSQL、Redis、应用内 TLS、自动备份调度或远端存储"
+    source: 范围守护
+    status: passed
+  - item: "不修改 Relay 协议、SQLite schema 或客户端行为"
+    source: 范围守护
+    status: passed

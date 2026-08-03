@@ -1,0 +1,8 @@
+**
+!cloud/**
+!web/**
+cloud/compat
+cloud/**/*_test.go
+web/node_modules
+web/dist
+**/.DS_Store

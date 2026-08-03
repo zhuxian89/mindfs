@@ -1,0 +1,192 @@
+feature: 2026-08-03-relay-core-single-instance
+created: 2026-08-03
+
+steps:
+  - action: "编排骨架：建立独立 cloud module、配置加载、Store/Service 接口和协议兼容路由骨架"
+    exit_signal: "cloud 可独立构建启动，healthz 成功，目标路由可达，根 module 和现有源码无改动"
+    status: done
+
+  - action: "绑定与凭据计算节点：实现管理员 Session、challenge 状态机、HMAC Token 派生和确认事务"
+    exit_signal: "pending、confirmed、claimed、expired、revoked 可观察，confirmed 重试返回相同 Token"
+    status: done
+
+  - action: "Connector 计算节点：实现 Bearer 鉴权、WebSocket net.Conn、yamux.Server 和 SessionRegistry"
+    exit_signal: "合法 Node 上线，无效 Token 返回指定 401，新连接可靠替换旧连接"
+    status: done
+
+  - action: "HTTP Gateway 计算节点：实现 node 路由、stream 打开、路径/Header 改写和流式响应"
+    exit_signal: "普通 HTTP、静态资源、API body 和错误响应均能经 yamux 往返"
+    status: done
+
+  - action: "WebSocket Gateway 计算节点：实现 101 协调、子协议和 data/close framing 双向桥接"
+    exit_signal: "text、binary、正常 close、异常 close 和超限消息符合协议"
+    status: done
+
+  - action: "持久化与生命周期：完成 SQLite repository、启动恢复、challenge 过期和连接清理"
+    exit_signal: "Cloud 重启后绑定数据仍在，Node 重连恢复，过期和断线无残留 session"
+    status: done
+
+  - action: "Feature 内协议验证：覆盖接口、错误、并发、安全和现有代码只读边界"
+    exit_signal: "全部验收场景有证据，测试通过，git 变更只包含 cloud/** 与 .codestable/**"
+    status: done
+
+checks:
+  - item: "CloudConfig 包含已批准的 V0 配置且 Token Key 必须是 base64url 32 字节"
+    source: 名词契约
+    status: passed
+  - item: "BindChallenge、Node、DeviceTokenRecord 和 NodePresence 与 design 定义一致"
+    source: 名词契约
+    status: passed
+  - item: "Device Token 按 roadmap 确定性 HMAC 契约派生且数据库只存 hash"
+    source: 名词契约
+    status: passed
+  - item: "BindingService、DeviceTokenService 和 SessionRegistry 职责边界落地"
+    source: 名词契约
+    status: passed
+  - item: "SQLite 只包含 admin_sessions、bind_challenges、nodes、device_tokens"
+    source: 名词契约
+    status: passed
+  - item: "绑定确认的 Node、Token hash 和 challenge 状态在同一事务提交"
+    source: 流程级约束
+    status: passed
+  - item: "同一 code/device ID confirmed 轮询幂等，不同 device ID 不泄露凭据"
+    source: 流程级约束
+    status: passed
+  - item: "每个 node ID 只有一个 active Relay Session，旧连接清理不删除新连接"
+    source: 流程级约束
+    status: passed
+  - item: "HTTP request/response body 流式转发且客户端取消关闭对应 stream"
+    source: 流程级约束
+    status: passed
+  - item: "外部内部 Header 被清洗，E2EE Header 值保持不变"
+    source: 流程级约束
+    status: passed
+  - item: "WebSocket 单方向顺序保持，结束时只关闭一次并释放 stream"
+    source: 流程级约束
+    status: passed
+  - item: "日志不记录 Token、Authorization、E2EE body 或 WebSocket payload"
+    source: 流程级约束
+    status: passed
+  - item: "挂载点 cloud/go.mod 与 cloud/cmd/mindfs-relay 可独立构建和移除"
+    source: 挂载点
+    status: passed
+  - item: "挂载点 Cloud HTTP 路由与 design 清单一致"
+    source: 挂载点
+    status: passed
+  - item: "挂载点 Cloud 配置键与 design 清单一致"
+    source: 挂载点
+    status: passed
+  - item: "挂载点 Cloud SQLite schema 与 design 清单一致"
+    source: 挂载点
+    status: passed
+  - item: "外部 MINDFS_RELAY_BASE_URL 可指向 Cloud Relay，无客户端改动"
+    source: 挂载点
+    status: passed
+  - item: "配置完整且 SQLite 可写时 Cloud 启动并由 healthz 返回 200"
+    source: 验收场景
+    status: passed
+  - item: "首次合法 bind poll 返回 pending 和正数 next_poll_after_ms"
+    source: 验收场景
+    status: passed
+  - item: "管理员登录并确认后 Node 获得客户端可解析的 confirmed JSON"
+    source: 验收场景
+    status: passed
+  - item: "同一 code/device ID 重复 poll 返回完全相同凭据"
+    source: 验收场景
+    status: passed
+  - item: "合法 Token 建立 Connector 并可接受 Cloud 打开的 yamux stream"
+    source: 验收场景
+    status: passed
+  - item: "访问 /n/{nodeId}/ 时 Node 收到路径 / 并返回页面"
+    source: 验收场景
+    status: passed
+  - item: "HTTP API method、query、body 和流式响应经 Gateway 保持"
+    source: 验收场景
+    status: passed
+  - item: "WebSocket text、binary 和 close 双向保持顺序"
+    source: 验收场景
+    status: passed
+  - item: "E2EE Header 原值到达 Node，canonical path 无 Relay 前缀且日志无 payload"
+    source: 验收场景
+    status: passed
+  - item: "Cloud 重启后无需重新绑定，Node 重连恢复访问"
+    source: 验收场景
+    status: passed
+  - item: "绑定页早于 Node poll 时保持等待且不自动签发凭据"
+    source: 验收场景
+    status: passed
+  - item: "不同 device ID 使用相同 code 返回 claimed 且不含凭据"
+    source: 验收场景
+    status: passed
+  - item: "超过 10 分钟未确认的 challenge 返回 expired 且不能确认"
+    source: 验收场景
+    status: passed
+  - item: "管理员拒绝 challenge 后 Node poll 返回 revoked"
+    source: 验收场景
+    status: passed
+  - item: "第二条同 node Connector 替换旧连接且旧清理不影响新连接"
+    source: 验收场景
+    status: passed
+  - item: "伪造内部 Header 时 Node 只看到 Cloud 生成的合法值"
+    source: 验收场景
+    status: passed
+  - item: "Public Node Route 无尾路径时 Node 路径统一为 /"
+    source: 验收场景
+    status: passed
+  - item: "WebSocket data frame 超过 32 MiB 时以 1009 关闭并释放 stream"
+    source: 验收场景
+    status: passed
+  - item: "公网 HTTP 客户端取消只关闭对应 stream"
+    source: 验收场景
+    status: passed
+  - item: "Token Key 缺失或错误时进程拒绝启动且不监听端口"
+    source: 验收场景
+    status: passed
+  - item: "SQLite 打开或迁移失败时进程拒绝启动且不降级"
+    source: 验收场景
+    status: passed
+  - item: "管理员凭据错误返回 401 auth_required 且不创建 Session"
+    source: 验收场景
+    status: passed
+  - item: "绑定确认缺少 Session 或 CSRF 时不改变 challenge"
+    source: 验收场景
+    status: passed
+  - item: "Connector 无效 Token 返回 401 device_token_invalid"
+    source: 验收场景
+    status: passed
+  - item: "不存在 node 返回 404 node_not_found"
+    source: 验收场景
+    status: passed
+  - item: "离线 node 返回 503 node_offline"
+    source: 验收场景
+    status: passed
+  - item: "stream 打开超时返回 504 node_timeout"
+    source: 验收场景
+    status: passed
+  - item: "Node WebSocket 非 101 响应原样返回且不升级公网 WebSocket"
+    source: 验收场景
+    status: passed
+  - item: "Connector 非 binary transport message 导致关闭并标记 offline"
+    source: 验收场景
+    status: passed
+  - item: "未知 WS frame 或非法 opcode 以 1002 关闭并释放 stream"
+    source: 验收场景
+    status: passed
+  - item: "现有 MindFS 源码和根构建文件零改动"
+    source: 范围守护
+    status: passed
+  - item: "cloud/go.mod 不引用 mindfs/server/internal"
+    source: 范围守护
+    status: passed
+  - item: "V0 不注册 Token Station、Hosted Content、版本或本地服务 API"
+    source: 范围守护
+    status: passed
+  - item: "V0 不预建 V1/V2/V3 数据表"
+    source: 范围守护
+    status: passed
+  - item: "日志和数据库不包含密钥、Token、Authorization 或业务 payload"
+    source: 范围守护
+    status: passed
+  - item: "V0 不新增 Dockerfile、生产反代、PostgreSQL 或 Redis"
+    source: 范围守护
+    status: passed

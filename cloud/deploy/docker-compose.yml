@@ -1,0 +1,46 @@
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: cloud/Dockerfile
+    restart: unless-stopped
+    environment:
+      MINDFS_CLOUD_ADDR: :8080
+      MINDFS_CLOUD_DATA_DIR: /var/lib/mindfs-cloud
+      MINDFS_CLOUD_ASSETS_DIR: /opt/mindfs/web
+      MINDFS_CLOUD_PUBLIC_URL: ${MINDFS_CLOUD_PUBLIC_URL}
+      MINDFS_CLOUD_ADMIN_USERNAME: ${MINDFS_CLOUD_ADMIN_USERNAME}
+      MINDFS_CLOUD_ADMIN_PASSWORD: ${MINDFS_CLOUD_ADMIN_PASSWORD}
+      MINDFS_CLOUD_TOKEN_KEY: ${MINDFS_CLOUD_TOKEN_KEY}
+    volumes:
+      - relay-data:/var/lib/mindfs-cloud
+      - relay-backups:/backups
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mindfs-relay", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    environment:
+      MINDFS_CLOUD_DOMAIN: ${MINDFS_CLOUD_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  relay-data:
+  relay-backups:
+  caddy-data:
+  caddy-config:
