@@ -71,6 +71,9 @@ type Store interface {
 	ConfirmChallenge(context.Context, []byte, Node, DeviceTokenRecord, time.Time) (BindChallenge, Node, error)
 	RevokeChallenge(context.Context, []byte) error
 	GetNode(context.Context, string) (Node, error)
+	ListNodes(context.Context) ([]Node, error)
+	RenameNode(context.Context, string, string) (Node, error)
+	DeleteNode(context.Context, string) error
 	AuthenticateDeviceToken(context.Context, []byte, time.Time) (Node, error)
 	SaveAdminSession(context.Context, AdminSession) error
 	GetAdminSession(context.Context, []byte, time.Time) (AdminSession, error)

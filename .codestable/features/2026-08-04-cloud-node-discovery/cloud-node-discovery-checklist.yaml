@@ -1,0 +1,132 @@
+feature: 2026-08-04-cloud-node-discovery
+created: 2026-08-04
+
+steps:
+  - action: "按第 2.5 节方案做微重构：拆分 Relay 浏览器页面职责，只搬现有行为"
+    exit_signal: "Cloud 编译与现有 browser handler tests 通过，对外路由和响应行为零变化"
+    status: done
+  - action: "认证与控制台骨架：让 /login、/nodes、/api/auth/me 和 logout 复用现有 AdminSession"
+    exit_signal: "未登录进入登录页，登录后进入安全 next，me/logout 与客户端观察一致且绑定登录不回归"
+    status: done
+  - action: "客户端节点查询契约：实现 GET /api/nodes 并合并 SQLite 节点与 Registry 在线状态"
+    exit_signal: "空集合、多节点、online/offline、确定性排序和存储失败均有可观察结果"
+    status: done
+  - action: "节点控制台接入：用真实节点数据完成展示、在线打开、离线提示、周期刷新和规范 /n/ anchors"
+    exit_signal: "全新浏览器登录后无需输入 Node URL 即可查看并打开在线节点，DOM 满足移动端提取契约"
+    status: done
+  - action: "重命名能力：实现 PATCH /api/nodes/{id}、同源写保护和页面编辑交互"
+    exit_signal: "合法名称持久化，空名称、不存在节点、未登录和跨源请求返回约定错误"
+    status: done
+  - action: "删除与撤销能力：实现 DELETE /api/nodes/{id}、Token 撤销和 active session 关闭"
+    exit_signal: "删除后节点消失、旧 Token 无法重连、在线 session 关闭且其他节点不受影响"
+    status: done
+  - action: "兼容与范围回归：补齐自动测试并核对绑定、Gateway、客户端契约和 cloud-only 边界"
+    exit_signal: "全部验收场景有证据，cloud 测试通过，cloud 外无源码 diff且未引入多用户或额外协议"
+    status: done
+
+checks:
+  - item: "Relay Node Payload 只含 id、name、status、last_seen_at 和 base_url"
+    source: 名词契约
+    status: pending
+  - item: "Relay Auth Me Payload 来自现有 AdminSession，只表达固定 bootstrap owner"
+    source: 名词契约
+    status: pending
+  - item: "PATCH /api/nodes/{id} 接受客户端既有的 name JSON 请求"
+    source: 名词契约
+    status: pending
+  - item: "DELETE /api/nodes/{id} 返回 success 并撤销节点、Token 和在线 session"
+    source: 名词契约
+    status: pending
+  - item: "未登录访问 /nodes 会进入 /login，登录后按严格同源规则返回 next"
+    source: 编排骨架
+    status: pending
+  - item: "GET /api/nodes 一次读取 SQLite 节点并合并 Registry presence"
+    source: 编排骨架
+    status: pending
+  - item: "在线节点可打开，离线节点保留可见但页面阻止打开"
+    source: 编排骨架
+    status: pending
+  - item: "删除先完成持久化凭据撤销，再关闭 active Relay Session"
+    source: 编排骨架
+    status: pending
+  - item: "未登录 auth/nodes 请求返回 401 unauthorized，跨源写请求返回 403 forbidden"
+    source: 流程级约束
+    status: pending
+  - item: "rename/delete 无自定义 CSRF Header，使用同源 Origin 与 SameSite Session Cookie 保护"
+    source: 流程级约束
+    status: pending
+  - item: "节点按 online、last_seen_at、created_at、ID 确定性排序"
+    source: 流程级约束
+    status: pending
+  - item: "页面和认证/节点响应 no-store，日志不记录节点或凭据内容"
+    source: 流程级约束
+    status: pending
+  - item: "Relay 浏览器路由挂载 /nodes、/login、GET /api/auth/me 和 POST /api/auth/logout"
+    source: 挂载点
+    status: pending
+  - item: "Relay Nodes API 挂载 GET/PATCH/DELETE /api/nodes"
+    source: 挂载点
+    status: pending
+  - item: "Store 提供 list、rename 和 delete-with-token-revocation 契约"
+    source: 挂载点
+    status: pending
+  - item: "Session Registry 提供删除节点后的单节点断连能力"
+    source: 挂载点
+    status: pending
+  - item: "不实现 /api/cloud/v1/nodes、CloudPrincipal、tenant、ACL、注册、邮箱验证码、OAuth 或 OIDC"
+    source: 范围守护
+    status: pending
+  - item: "不在 Cloud 根路径使用 /api/dirs 或 /api/relay/status 作为节点控制台协议"
+    source: 范围守护
+    status: pending
+  - item: "不修改 SQLite schema 或新增用户/租户表"
+    source: 范围守护
+    status: pending
+  - item: "server、web、cli、android、harmony 与根构建文件无源码改动"
+    source: 范围守护
+    status: pending
+  - item: "不实现共享、Token rotate、分页、搜索、presence 推送或多实例聚合"
+    source: 范围守护
+    status: pending
+  - item: "全新浏览器访问 /nodes 不泄露节点数据并可用 bootstrap 凭据登录"
+    source: 验收场景
+    status: pending
+  - item: "外部或非法 next 登录后统一回到 /nodes"
+    source: 验收场景
+    status: pending
+  - item: "有效 Session 的 /api/auth/me 返回管理员摘要，过期 Session 返回 401"
+    source: 验收场景
+    status: pending
+  - item: "登录后 GET /api/nodes 可发现 SQLite 已绑定节点，空集合返回 200 []"
+    source: 验收场景
+    status: pending
+  - item: "online/offline 与确定性排序正确且周期刷新可反映连接变化"
+    source: 验收场景
+    status: pending
+  - item: "节点页输出规范 /n/{id}/ anchor，在线可打开且离线有提示"
+    source: 验收场景
+    status: pending
+  - item: "重命名成功持久化，空名称 400，不存在节点 404，跨源请求 403"
+    source: 验收场景
+    status: pending
+  - item: "删除撤销节点与 Token、关闭 session，旧 Token 不能重连且其他节点不受影响"
+    source: 验收场景
+    status: pending
+  - item: "节点 JSON 不泄露 device ID、Token、hash、connection ID 或管理员敏感信息"
+    source: 验收场景
+    status: pending
+  - item: "Store 失败返回无敏感细节的 500，页面不显示陈旧成功状态"
+    source: 验收场景
+    status: pending
+  - item: "logout 清除 Cookie，后续 me/nodes 返回 401"
+    source: 验收场景
+    status: pending
+  - item: "现有 /bind 登录、状态、确认和 CSRF 流程不变"
+    source: 验收场景
+    status: pending
+  - item: "Public Node Route 的 HTTP、WebSocket、E2EE 与 node_auth 行为不变"
+    source: 验收场景
+    status: pending
+  - item: "部署后 VPS 可完成登录、查看、打开、重命名和删除节点"
+    source: 验收场景
+    status: pending

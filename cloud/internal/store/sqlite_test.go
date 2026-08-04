@@ -48,6 +48,99 @@ func TestConfirmChallengeCommitsAtomically(t *testing.T) {
 	}
 }
 
+func TestListNodesReturnsPersistedNodes(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	for index, name := range []string{"Office Mac", "Home PC"} {
+		codeHash := []byte{byte(index + 1)}
+		if _, _, err := s.ObserveChallenge(ctx, codeHash, "device-"+name, now, now.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		node := Node{
+			ID:         "node-" + name,
+			DeviceID:   "device-" + name,
+			Name:       name,
+			Status:     "active",
+			AccessMode: "node_auth",
+			CreatedAt:  now.Add(time.Duration(index) * time.Second),
+		}
+		token := DeviceTokenRecord{
+			ID:        "token-" + name,
+			NodeID:    node.ID,
+			TokenHash: []byte("hash-" + name),
+			Status:    "active",
+			CreatedAt: node.CreatedAt,
+		}
+		if _, _, err := s.ConfirmChallenge(ctx, codeHash, node, token, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	nodes, err := s.ListNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("nodes = %#v", nodes)
+	}
+}
+
+func TestRenameNodePersistsName(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	codeHash := []byte("rename-node")
+	if _, _, err := s.ObserveChallenge(ctx, codeHash, "device-rename", now, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	node := Node{ID: "node-rename", DeviceID: "device-rename", Name: "Before", Status: "active", AccessMode: "node_auth", CreatedAt: now}
+	token := DeviceTokenRecord{ID: "token-rename", NodeID: node.ID, TokenHash: []byte("hash-rename"), Status: "active", CreatedAt: now}
+	if _, _, err := s.ConfirmChallenge(ctx, codeHash, node, token, now); err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := s.RenameNode(ctx, node.ID, "After")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Name != "After" {
+		t.Fatalf("renamed = %#v", renamed)
+	}
+	if _, err := s.RenameNode(ctx, "missing", "Name"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing rename error = %v", err)
+	}
+}
+
+func TestDeleteNodeRevokesDeviceToken(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+	now := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	codeHash := []byte("delete-node")
+	if _, _, err := s.ObserveChallenge(ctx, codeHash, "device-delete", now, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	node := Node{ID: "node-delete", DeviceID: "device-delete", Name: "Delete", Status: "active", AccessMode: "node_auth", CreatedAt: now}
+	tokenHash := []byte("hash-delete")
+	token := DeviceTokenRecord{ID: "token-delete", NodeID: node.ID, TokenHash: tokenHash, Status: "active", CreatedAt: now}
+	if _, _, err := s.ConfirmChallenge(ctx, codeHash, node, token, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteNode(ctx, node.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetNode(ctx, node.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if _, err := s.AuthenticateDeviceToken(ctx, tokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("AuthenticateDeviceToken() error = %v", err)
+	}
+	if err := s.DeleteNode(ctx, node.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second DeleteNode() error = %v", err)
+	}
+}
+
 func TestSQLiteSchemaContainsOnlyV0Tables(t *testing.T) {
 	s := openTestStore(t)
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")

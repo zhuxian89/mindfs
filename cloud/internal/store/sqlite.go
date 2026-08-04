@@ -235,6 +235,78 @@ func (s *SQLiteStore) GetNode(ctx context.Context, nodeID string) (Node, error) 
 	return getNode(ctx, s.db, nodeID)
 }
 
+func (s *SQLiteStore) ListNodes(ctx context.Context) ([]Node, error) {
+	const query = "SELECT id, device_id, name, status, access_mode, created_at, last_seen_at FROM nodes"
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	nodes := make([]Node, 0)
+	for rows.Next() {
+		var node Node
+		var createdAt int64
+		var lastSeenAt sql.NullInt64
+		if err := rows.Scan(
+			&node.ID,
+			&node.DeviceID,
+			&node.Name,
+			&node.Status,
+			&node.AccessMode,
+			&createdAt,
+			&lastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		node.CreatedAt = fromMillis(createdAt)
+		node.LastSeenAt = nullableTime(lastSeenAt)
+		nodes = append(nodes, node)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
+func (s *SQLiteStore) RenameNode(ctx context.Context, nodeID, name string) (Node, error) {
+	result, err := s.db.ExecContext(ctx, "UPDATE nodes SET name = ? WHERE id = ?", name, nodeID)
+	if err != nil {
+		return Node{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Node{}, err
+	}
+	if affected == 0 {
+		return Node{}, ErrNotFound
+	}
+	return getNode(ctx, s.db, nodeID)
+}
+
+func (s *SQLiteStore) DeleteNode(ctx context.Context, nodeID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM device_tokens WHERE node_id = ?", nodeID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM nodes WHERE id = ?", nodeID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) AuthenticateDeviceToken(ctx context.Context, tokenHash []byte, now time.Time) (Node, error) {
 	const query = "SELECT n.id, n.device_id, n.name, n.status, n.access_mode, n.created_at, n.last_seen_at " +
 		"FROM device_tokens t JOIN nodes n ON n.id = t.node_id " +

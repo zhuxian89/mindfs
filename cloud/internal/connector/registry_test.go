@@ -7,11 +7,15 @@ import (
 )
 
 type fakeSession struct {
-	open func() (net.Conn, error)
+	open   func() (net.Conn, error)
+	closed bool
 }
 
 func (s *fakeSession) Open() (net.Conn, error) { return s.open() }
-func (s *fakeSession) Close() error            { return nil }
+func (s *fakeSession) Close() error {
+	s.closed = true
+	return nil
+}
 
 func TestRegistryReplacementUsesCompareAndDelete(t *testing.T) {
 	registry := NewSessionRegistry()
@@ -47,4 +51,19 @@ func TestRegistryOpenStream(t *testing.T) {
 		t.Fatal("unexpected stream")
 	}
 	_ = opened.Close()
+}
+
+func TestRegistryDisconnectClosesActiveSession(t *testing.T) {
+	registry := NewSessionRegistry()
+	session := &fakeSession{open: func() (net.Conn, error) { return nil, nil }}
+	registry.Register("node-1", "conn-1", session)
+	if err := registry.Disconnect("node-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !session.closed || registry.Status("node-1").Online {
+		t.Fatalf("closed=%v presence=%#v", session.closed, registry.Status("node-1"))
+	}
+	if err := registry.Disconnect("node-1"); err != nil {
+		t.Fatal(err)
+	}
 }

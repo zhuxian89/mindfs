@@ -31,6 +31,7 @@ type registryEntry struct {
 type SessionRegistry interface {
 	Register(string, string, RelaySession) RelaySession
 	Unregister(string, string)
+	Disconnect(string) error
 	OpenStream(context.Context, string) (net.Conn, error)
 	Status(string) NodePresence
 }
@@ -63,6 +64,19 @@ func (r *Registry) Unregister(nodeID, connectionID string) {
 	if ok && current.connectionID == connectionID {
 		delete(r.sessions, nodeID)
 	}
+}
+
+func (r *Registry) Disconnect(nodeID string) error {
+	r.mu.Lock()
+	entry, ok := r.sessions[nodeID]
+	if ok {
+		delete(r.sessions, nodeID)
+	}
+	r.mu.Unlock()
+	if !ok || entry.session == nil {
+		return nil
+	}
+	return entry.session.Close()
 }
 
 func (r *Registry) OpenStream(ctx context.Context, nodeID string) (net.Conn, error) {

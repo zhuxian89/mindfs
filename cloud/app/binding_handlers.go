@@ -88,10 +88,9 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	respondJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
-			"id":        "usr_bootstrap",
-			"tenant_id": "ten_bootstrap",
-			"username":  a.config.AdminUsername,
-			"roles":     []string{"owner"},
+			"id":       "usr_bootstrap",
+			"username": a.config.AdminUsername,
+			"roles":    []string{"owner"},
 		},
 		"csrf_token": csrfToken,
 	})
