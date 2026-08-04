@@ -4,11 +4,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	stdpath "path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 const (
@@ -110,7 +114,91 @@ func CheckAssetsDir(absolute string) error {
 	if !assetsInfo.IsDir() {
 		return errors.New("MINDFS_CLOUD_ASSETS_DIR assets must be a directory")
 	}
-	return nil
+	return checkIndexAssetReferences(absolute)
+}
+
+func checkIndexAssetReferences(absolute string) error {
+	indexFile, err := os.Open(filepath.Join(absolute, "index.html"))
+	if err != nil {
+		return errors.New("MINDFS_CLOUD_ASSETS_DIR missing index.html")
+	}
+	defer indexFile.Close()
+	assetsRoot, err := os.OpenRoot(filepath.Join(absolute, "assets"))
+	if err != nil {
+		return errors.New("MINDFS_CLOUD_ASSETS_DIR missing assets")
+	}
+	defer assetsRoot.Close()
+
+	tokenizer := html.NewTokenizer(io.LimitReader(indexFile, 4<<20))
+	checked := make(map[string]struct{})
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			if errors.Is(tokenizer.Err(), io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR parse index.html: %w", tokenizer.Err())
+		case html.StartTagToken, html.SelfClosingTagToken:
+			token := tokenizer.Token()
+			for _, attribute := range token.Attr {
+				if attribute.Key != "src" && attribute.Key != "href" {
+					continue
+				}
+				assetPath, matched, err := indexAssetPath(attribute.Val)
+				if err != nil {
+					return err
+				}
+				if !matched {
+					continue
+				}
+				if _, exists := checked[assetPath]; exists {
+					continue
+				}
+				checked[assetPath] = struct{}{}
+				file, err := assetsRoot.Open(filepath.FromSlash(assetPath))
+				if err != nil {
+					return fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR missing index asset %s", assetPath)
+				}
+				info, statErr := file.Stat()
+				_ = file.Close()
+				if statErr != nil || !info.Mode().IsRegular() {
+					return fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR index asset %s must be a file", assetPath)
+				}
+			}
+		}
+	}
+}
+
+func indexAssetPath(reference string) (string, bool, error) {
+	value := strings.TrimSpace(reference)
+	if value == "" || strings.HasPrefix(value, "//") {
+		return "", false, nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "", false, fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR invalid index asset reference %q", value)
+	}
+	if parsed.IsAbs() || parsed.Host != "" {
+		return "", false, nil
+	}
+	assetPath := strings.TrimPrefix(parsed.Path, "./")
+	assetPath = strings.TrimPrefix(assetPath, "/")
+	if strings.Contains(assetPath, "\\") {
+		return "", false, fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR unsafe index asset reference %q", value)
+	}
+	switch {
+	case strings.HasPrefix(assetPath, "assets/"):
+		assetPath = strings.TrimPrefix(assetPath, "assets/")
+	case strings.HasPrefix(assetPath, "mindfs-assets/"):
+		assetPath = strings.TrimPrefix(assetPath, "mindfs-assets/")
+	default:
+		return "", false, nil
+	}
+	cleaned := stdpath.Clean(assetPath)
+	if assetPath == "" || cleaned != assetPath || cleaned == "." || strings.HasPrefix(cleaned, "../") {
+		return "", false, fmt.Errorf("MINDFS_CLOUD_ASSETS_DIR unsafe index asset reference %q", value)
+	}
+	return cleaned, true, nil
 }
 
 func parsePublicURL(value string) (*url.URL, error) {

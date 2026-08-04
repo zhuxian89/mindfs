@@ -1,19 +1,34 @@
+x-relay-image: &relay-image
+  image: mindfs-relay:local
+  build:
+    context: ../..
+    dockerfile: cloud/Dockerfile
+
 services:
+  asset-sync:
+    <<: *relay-image
+    restart: "no"
+    command: ["sync-assets", "/opt/mindfs/web", "/var/lib/mindfs-assets"]
+    volumes:
+      - relay-assets:/var/lib/mindfs-assets
+
   relay:
-    build:
-      context: ../..
-      dockerfile: cloud/Dockerfile
+    <<: *relay-image
     restart: unless-stopped
+    depends_on:
+      asset-sync:
+        condition: service_completed_successfully
     environment:
       MINDFS_CLOUD_ADDR: :8080
       MINDFS_CLOUD_DATA_DIR: /var/lib/mindfs-cloud
-      MINDFS_CLOUD_ASSETS_DIR: /opt/mindfs/web
+      MINDFS_CLOUD_ASSETS_DIR: /var/lib/mindfs-assets
       MINDFS_CLOUD_PUBLIC_URL: ${MINDFS_CLOUD_PUBLIC_URL}
       MINDFS_CLOUD_ADMIN_USERNAME: ${MINDFS_CLOUD_ADMIN_USERNAME}
       MINDFS_CLOUD_ADMIN_PASSWORD: ${MINDFS_CLOUD_ADMIN_PASSWORD}
       MINDFS_CLOUD_TOKEN_KEY: ${MINDFS_CLOUD_TOKEN_KEY}
     volumes:
       - relay-data:/var/lib/mindfs-cloud
+      - relay-assets:/var/lib/mindfs-assets:ro
       - relay-backups:/backups
     healthcheck:
       test: ["CMD", "/usr/local/bin/mindfs-relay", "healthcheck"]
@@ -41,6 +56,7 @@ services:
 
 volumes:
   relay-data:
+  relay-assets:
   relay-backups:
   caddy-data:
   caddy-config:

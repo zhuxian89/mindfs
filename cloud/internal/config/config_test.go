@@ -93,6 +93,29 @@ func TestLoadRejectsIncompleteAssetsDir(t *testing.T) {
 	}
 }
 
+func TestCheckAssetsDirValidatesIndexReferences(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := `<script type="module" src="./assets/index-current.js"></script><link rel="stylesheet" href="/mindfs-assets/index-current.css">`
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "index-current.js"), []byte("js"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckAssetsDir(dir); err == nil || !strings.Contains(err.Error(), "index-current.css") {
+		t.Fatalf("CheckAssetsDir() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "index-current.css"), []byte("css"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckAssetsDir(dir); err != nil {
+		t.Fatalf("CheckAssetsDir() error = %v", err)
+	}
+}
+
 func setAssetsDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

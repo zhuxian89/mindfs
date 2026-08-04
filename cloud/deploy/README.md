@@ -6,17 +6,44 @@ bytes, set a public DNS name, and point that name at the host.
 
 ```bash
 docker compose build
+docker compose run --rm asset-sync
 docker compose run --rm relay validate
 docker compose run --rm relay migrate
 docker compose up -d
 docker compose ps
 ```
 
+`asset-sync` merges the Web bundle baked into the current image with every
+official MindFS release from `v0.1.8` onward. The merged content-hashed files
+live in the persistent `relay-assets` volume: existing files are never deleted
+or overwritten, and a same-name/different-content collision fails the sync.
+Relay mounts this volume read-only and continues to serve the client contract
+at `/mindfs-assets/{file}`.
+
+Upgrade the Relay without dropping assets required by older Nodes:
+
+```bash
+git pull --ff-only
+docker compose build --pull --no-cache relay
+docker compose run --rm asset-sync
+docker compose up -d --force-recreate relay
+docker compose ps
+```
+
+After an upgrade, verify both the current entry asset and a historical asset
+return `200` before considering the deployment complete:
+
+```bash
+curl -I https://relay.example.com/mindfs-assets/index-DeNebQ9q.js
+curl -I https://relay.example.com/mindfs-assets/index-B4USfphH.js
+```
+
 Caddy terminates HTTPS/WSS and forwards the original Host, scheme, and
 WebSocket upgrade headers. The Cloud container listens only inside the Compose
-network. SQLite lives in `relay-data`; generated backups live in
-`relay-backups`. The application binary and Web asset bundle are read-only and
-the final container runs as UID/GID 65532.
+network. SQLite lives in `relay-data`; the immutable multi-release Web asset
+set lives in `relay-assets`; generated backups live in `relay-backups`. The
+Relay application mounts the Web assets read-only and the final container runs
+as UID/GID 65532.
 
 Create an online SQLite snapshot without stopping Relay:
 

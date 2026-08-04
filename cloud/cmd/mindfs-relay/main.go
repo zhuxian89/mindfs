@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"mindfs-cloud/app"
+	"mindfs-cloud/internal/assetsync"
 	"mindfs-cloud/internal/config"
 	"mindfs-cloud/internal/ops"
 )
@@ -26,6 +27,25 @@ func main() {
 func run(args []string, stdout io.Writer) error {
 	command, rest, err := parseCommand(args)
 	if err != nil {
+		return err
+	}
+	if command == "sync-assets" {
+		result, err := assetsync.Sync(context.Background(), assetsync.Options{
+			SourceDir: rest[0],
+			TargetDir: rest[1],
+		})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(
+			stdout,
+			"asset sync complete current_files=%d releases_imported=%d releases_present=%d assets_added=%d assets_reused=%d\n",
+			result.CurrentFiles,
+			result.ReleasesImported,
+			result.ReleasesPresent,
+			result.AssetsAdded,
+			result.AssetsReused,
+		)
 		return err
 	}
 	cfg, err := config.Load()
@@ -72,6 +92,11 @@ func parseCommand(args []string) (string, []string, error) {
 	case "backup":
 		if len(args) != 2 {
 			return "", nil, errors.New("usage: mindfs-relay backup <destination>")
+		}
+		return command, args[1:], nil
+	case "sync-assets":
+		if len(args) != 3 {
+			return "", nil, errors.New("usage: mindfs-relay sync-assets <source-dir> <target-dir>")
 		}
 		return command, args[1:], nil
 	default:

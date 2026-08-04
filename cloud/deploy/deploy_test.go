@@ -21,7 +21,16 @@ func TestDeploymentFilesContainRequiredBoundaries(t *testing.T) {
 		}
 	}
 	compose := read(t, "docker-compose.yml")
-	for _, required := range []string{"dockerfile: cloud/Dockerfile", "relay-data", "relay-backups", "condition: service_healthy"} {
+	for _, required := range []string{
+		"dockerfile: cloud/Dockerfile",
+		"sync-assets",
+		"service_completed_successfully",
+		"relay-data",
+		"relay-assets",
+		"/var/lib/mindfs-assets:ro",
+		"relay-backups",
+		"condition: service_healthy",
+	} {
 		if !strings.Contains(compose, required) {
 			t.Fatalf("compose missing %q", required)
 		}

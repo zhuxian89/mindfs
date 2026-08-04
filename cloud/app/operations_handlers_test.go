@@ -94,8 +94,42 @@ func TestAssetHandlerRejectsUnsafePaths(t *testing.T) {
 		if recorder.Code != http.StatusNotFound {
 			t.Fatalf("%s returned %d body=%q", target, recorder.Code, recorder.Body.String())
 		}
+		if recorder.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s Cache-Control = %q", target, recorder.Header().Get("Cache-Control"))
+		}
 		if strings.Contains(recorder.Body.String(), outside) {
 			t.Fatal("asset error leaked absolute path")
+		}
+	}
+}
+
+func TestAssetHandlerServesMultipleReleaseHashes(t *testing.T) {
+	publicURL, _ := url.Parse("http://relay.example.com")
+	var tokenKey [32]byte
+	cfg := testConfig(t, publicURL, tokenKey)
+	assets := map[string]string{
+		"index-C0gNCfj8.js": "v0.4.4",
+		"index-B4USfphH.js": "v0.4.5",
+		"index-DeNebQ9q.js": "v0.4.6",
+	}
+	for name, content := range assets {
+		if err := os.WriteFile(filepath.Join(cfg.AssetsDir, "assets", name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	application, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+	for name, want := range assets {
+		recorder := httptest.NewRecorder()
+		application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/mindfs-assets/"+name, nil))
+		if recorder.Code != http.StatusOK || recorder.Body.String() != want {
+			t.Fatalf("%s response = %d %q", name, recorder.Code, recorder.Body.String())
+		}
+		if !strings.Contains(recorder.Header().Get("Cache-Control"), "immutable") {
+			t.Fatalf("%s Cache-Control = %q", name, recorder.Header().Get("Cache-Control"))
 		}
 	}
 }

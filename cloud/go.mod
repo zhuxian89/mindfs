@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/hashicorp/yamux v0.1.2
+	golang.org/x/net v0.17.0
 	modernc.org/sqlite v1.34.5
 )
 
@@ -14,7 +15,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

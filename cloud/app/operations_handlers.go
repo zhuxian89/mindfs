@@ -31,21 +31,26 @@ func (a *App) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/mindfs-assets/")
 	if name == "" || name == "." || strings.Contains(name, "\\") || path.Clean(name) != name {
-		http.NotFound(w, r)
+		assetNotFound(w, r)
 		return
 	}
 	file, err := a.assets.Open(name)
 	if err != nil {
-		http.NotFound(w, r)
+		assetNotFound(w, r)
 		return
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
+		assetNotFound(w, r)
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, path.Base(name), info.ModTime(), file)
+}
+
+func assetNotFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.NotFound(w, r)
 }

@@ -21,7 +21,9 @@ func TestParseCommand(t *testing.T) {
 		{args: []string{"migrate"}, command: "migrate"},
 		{args: []string{"healthcheck"}, command: "healthcheck"},
 		{args: []string{"backup", "/tmp/backup.db"}, command: "backup"},
+		{args: []string{"sync-assets", "/opt/mindfs/web", "/var/lib/mindfs-assets"}, command: "sync-assets"},
 		{args: []string{"backup"}, wantErr: true},
+		{args: []string{"sync-assets", "/opt/mindfs/web"}, wantErr: true},
 		{args: []string{"unknown"}, wantErr: true},
 	}
 	for _, test := range tests {
