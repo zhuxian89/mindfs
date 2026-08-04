@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: mindfs-cloud-relay
 status: active
 created: 2026-08-03
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-04
 tags: [mindfs, cloud, relay, yamux, websocket, self-hosted, backend]
 related_requirements: [mindfs-compatible-cloud-backend]
 related_architecture: [cloud-relay-core]
@@ -732,36 +732,43 @@ GET /mindfs-assets/{path}
    - 状态：done
    - 对应 feature：2026-08-03-relay-deployment-baseline
 
+4. **cloud-node-discovery**（V0 修正项，2026-08-04 回填）— 让 bootstrap 管理员通过客户端既有 Relay 控制台契约（/login、/nodes、GET/PATCH/DELETE /api/nodes、/api/auth/me、/api/auth/logout）列出、打开、重命名和删除服务端节点。
+   - 所属模块：Identity、Binding、Management API
+   - 依赖：relay-core-single-instance、relay-deployment-baseline
+   - 状态：done
+   - 对应 feature：2026-08-04-cloud-node-discovery
+   - 备注：2026-08-04 `cloud-v0-completion` 探查发现原 V0 三项虽 done，但缺服务端节点发现闭环（换浏览器或清站点数据后无法找回节点），按探查建议回填为 V0 修正项，使单用户 V0 形成可用闭环；只复用客户端既有契约，不新增协议、不实现多用户与 Token 主动轮换。
+
 ### V1：完整自托管 Relay 后端
 
-4. **cloud-node-management** — 提供节点列表、在线状态、重命名、Token 轮换、撤销和删除 API。
-5. **relay-security-audit** — 完善认证、CSRF、限流、请求上限、Token 安全、审计和日志清洗。
-6. **relay-local-service-domains** — 实现本地服务注册、wildcard DNS/TLS 和 service hostname 转发。
+5. **cloud-node-management** — 提供节点 Token 主动轮换与运营管理 API（节点列表、在线状态、重命名、删除及删除时 Token 撤销已在 V0 的 cloud-node-discovery 完成）。
+6. **relay-security-audit** — 完善认证、CSRF、限流、请求上限、Token 安全、审计和日志清洗。
+7. **relay-local-service-domains** — 实现本地服务注册、wildcard DNS/TLS 和 service hostname 转发。
 
 ### V2：多用户生产平台后端
 
-7. **cloud-account-tenancy** — 实现用户、租户、OIDC、本地登录和 RBAC API。
-8. **cloud-node-sharing** — 实现节点共享、邀请、ACL 和访问模式 API。
-9. **relay-postgres-control-plane** — 将控制面持久化迁移至 PostgreSQL。
-10. **relay-distributed-routing** — 实现 Redis presence、多实例 Connector owner 和内部 stream 转发。
-11. **relay-usage-quotas** — 实现流量、连接、节点数、并发和租户配额。
-12. **cloud-operations-observability** — 提供指标、追踪、告警、SLO 和运营管理 API，不开发管理前端。
-13. **relay-custom-domains** — 实现节点及附加服务自定义域名、验证和证书生命周期。
+8. **cloud-account-tenancy** — 实现用户、租户、OIDC、本地登录和 RBAC API。
+9. **cloud-node-sharing** — 实现节点共享、邀请、ACL 和访问模式 API。
+10. **relay-postgres-control-plane** — 将控制面持久化迁移至 PostgreSQL。
+11. **relay-distributed-routing** — 实现 Redis presence、多实例 Connector owner 和内部 stream 转发。
+12. **relay-usage-quotas** — 实现流量、连接、节点数、并发和租户配额。
+13. **cloud-operations-observability** — 提供指标、追踪、告警、SLO 和运营管理 API，不开发管理前端。
+14. **relay-custom-domains** — 实现节点及附加服务自定义域名、验证和证书生命周期。
 
 ### V3：完整云生态后端
 
-14. **token-station-account-ledger** — 实现账户、余额、额度、台账和 API Key 生命周期。
-15. **token-station-model-gateway** — 实现 OpenAI、Anthropic、Gemini 兼容模型网关和流式计量。
-16. **token-station-billing** — 实现钱包、充值订单、支付适配器和幂等回调。
-17. **hosted-agent-config** — 实现配置修订、发布、回滚和 /api/agents。
-18. **cloud-tips-content** — 实现 Tips 内容存储、投放规则和 /api/tips。
-19. **release-distribution** — 实现移动版本、制品元数据、校验和和下载镜像。
-20. **cloud-backup-recovery** — 实现数据库、Redis 元数据、内容和制品的备份恢复。
-21. **cloud-api-lifecycle** — 建立客户端兼容矩阵、API 版本、弃用窗口和跨版本回归测试。
+15. **token-station-account-ledger** — 实现账户、余额、额度、台账和 API Key 生命周期。
+16. **token-station-model-gateway** — 实现 OpenAI、Anthropic、Gemini 兼容模型网关和流式计量。
+17. **token-station-billing** — 实现钱包、充值订单、支付适配器和幂等回调。
+18. **hosted-agent-config** — 实现配置修订、发布、回滚和 /api/agents。
+19. **cloud-tips-content** — 实现 Tips 内容存储、投放规则和 /api/tips。
+20. **release-distribution** — 实现移动版本、制品元数据、校验和和下载镜像。
+21. **cloud-backup-recovery** — 实现数据库、Redis 元数据、内容和制品的备份恢复。
+22. **cloud-api-lifecycle** — 建立客户端兼容矩阵、API 版本、弃用窗口和跨版本回归测试。
 
 **最小闭环**：relay-core-single-instance 完成后，未修改的 MindFS 客户端能够通过 MINDFS_RELAY_BASE_URL 完成绑定、建立 Connector，并从 cloud 的 /n/{nodeId} 入口正常使用 HTTP 和 WebSocket。
 
-**V0 状态**：核心实现、真实客户端兼容套件和部署基线均已完成；V0 核心兼容后端闭环结束。
+**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。
 
 ## 6. 排期思路
 

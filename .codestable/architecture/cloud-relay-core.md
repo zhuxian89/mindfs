@@ -57,8 +57,9 @@ flowchart LR
 - HTTP Gateway 先查 Node 和在线 session，打开 stream，去掉 `/n/{nodeId}`，重建内部 Header，再流式转发 request/response。代码锚点：`cloud/internal/gateway/http.go:44`。
 - WebSocket Gateway 先把 Upgrade request 发给 Node；只有 Node 返回 101 才升级公网侧，随后在 WebSocket message 与 MindFS data/close frame 间双向桥接。代码锚点：`cloud/internal/gateway/websocket.go:35`。
 - Gateway 为 Node 生成 `X-MindFS-Relayed: 1`；该值是未修改 Node 进入 release 静态资源重写分支的严格协议契约。代码锚点：`cloud/internal/gateway/http.go:156`。
+- Relay 浏览器控制台（`/nodes`）受 bootstrap AdminSession 保护：未登录跳 `/login?next=`，登录后由 `GET /api/nodes` 一次读取 SQLite 节点并合并 Registry 在线状态，生成同源 `/n/{id}/` 并按 online→最近在线→创建时间→ID 确定性排序；支持 rename/delete，写操作校验同源 Origin + SameSite Cookie。删除节点在单事务内撤销 node 与 Device Token，再关闭该节点 active session。代码锚点：`cloud/app/relay_nodes_handlers.go`、`cloud/app/relay_browser_handlers.go`。`/api/nodes` 是 Relay 控制台契约，`/api/dirs` 是 Node 内部 managed roots 契约，二者不混用。
 
-路由表集中在 `cloud/app/app.go`，除 Binding、Connector 和 Public Node Route 外，还挂载 `/healthz`、`/readyz`、`/metrics` 和 `/mindfs-assets/`。Relay 从只读挂载的持久化多 release repository 提供共享 assets；成功响应使用一年 immutable 缓存，缺失或非法路径明确返回 `Cache-Control: no-store`。
+路由表集中在 `cloud/app/app.go`，除 Binding、Connector 和 Public Node Route 外，还挂载 `/healthz`、`/readyz`、`/metrics`、`/mindfs-assets/`，以及 Relay 浏览器控制台 `/nodes`、`/login` 和 Relay 控制台 API `GET/PATCH/DELETE /api/nodes`、`GET /api/auth/me`、`POST /api/auth/logout`。Relay 从只读挂载的持久化多 release repository 提供共享 assets；成功响应使用一年 immutable 缓存，缺失或非法路径明确返回 `Cache-Control: no-store`。
 
 ## 3. 数据与状态
 
@@ -136,7 +137,7 @@ mindfs-relay sync-assets /opt/mindfs/web /var/lib/mindfs-assets
 
 - 这是单进程实现，但支持多个 Node；不支持多实例共享 presence。
 - TLS 可以在外部终止；Connector endpoint 的 `ws/wss` 只由可信 `MINDFS_CLOUD_PUBLIC_URL` 决定。
-- 管理员是单个 bootstrap 账号；没有节点管理、Token 轮换、多用户或 OIDC API。
+- 管理员是单个 bootstrap 账号；提供客户端兼容的节点 list/rename/delete（`/nodes` 控制台 + `/api/nodes`），不提供节点共享、Token 轮换、多用户或 OIDC API。
 - 不包含 Token Station、本地服务域名、托管内容、版本下载、PostgreSQL、Redis、Docker 或生产反代模板。
 - 单条 WebSocket message 上限固定为 32 MiB；未知 frame 或非法 opcode 以 1002 关闭，超限以 1009 关闭。
 - 上游协议变化时只修改 `cloud/**` 适配，不修改现有 MindFS Node、Web、CLI 或移动端。

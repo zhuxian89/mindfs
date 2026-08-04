@@ -26,13 +26,21 @@ items:
     minimal_loop: false
     notes: "V0；cloud 使用独立 go.mod，不修改根 go.mod 和 Makefile；容器只读托管当前 checkout web/dist 的 /mindfs-assets"
 
+  - slug: cloud-node-discovery
+    description: "让 bootstrap 管理员通过客户端既有 Relay 控制台契约列出、打开、重命名和删除服务端节点"
+    depends_on: [relay-core-single-instance, relay-deployment-baseline]
+    status: done
+    feature: 2026-08-04-cloud-node-discovery
+    minimal_loop: true
+    notes: "V0 修正项；2026-08-04 cloud-v0-completion 探查发现原 V0 缺服务端节点发现闭环，回填为 V0；只复用客户端既有 /login、/nodes、GET/PATCH/DELETE /api/nodes、/api/auth/me、/api/auth/logout 契约，不新增协议或多用户；minimal_loop=true 因无此闭环则单用户 V0 不可用；不实现 Token 主动轮换（留 cloud-node-management）"
+
   - slug: cloud-node-management
-    description: "提供节点列表、在线状态、重命名、Token 轮换、撤销和删除后端 API"
-    depends_on: [relay-core-single-instance]
+    description: "提供节点 Token 主动轮换与运营管理后端 API"
+    depends_on: [relay-core-single-instance, cloud-node-discovery]
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V1；不开发或修改现有 MindFS 前端"
+    notes: "V1；节点列表、在线状态、重命名、删除及删除时 Token 撤销已在 cloud-node-discovery(V0) 完成；本项保留 Token 主动轮换与运营扩展，不开发或修改现有 MindFS 前端"
 
   - slug: relay-security-audit
     description: "完善认证、CSRF、限流、请求上限、Token 安全、审计日志和敏感信息清洗"
@@ -40,7 +48,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V1；节点管理动作是安全审计的主要资源对象"
+    notes: "V1；节点 CRUD 动作（cloud-node-discovery，已 done）与 Token 轮换（cloud-node-management）是安全审计的主要资源对象"
 
   - slug: relay-local-service-domains
     description: "实现本地附加服务注册、wildcard DNS/TLS 和 service hostname 转发"

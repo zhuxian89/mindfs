@@ -3,7 +3,7 @@ doc_type: requirement
 slug: mindfs-compatible-cloud-backend
 pitch: 不用修改 MindFS 客户端，也能把本地节点接入自己的云端远程访问
 status: current
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-05
 implemented_by: [cloud-relay-core]
 tags: [mindfs, cloud, relay, self-hosted, compatibility]
 ---
@@ -36,3 +36,5 @@ MindFS 客户端已经具备远程连接能力，但官方云端实现不在当�
 
 - 2026-08-03：首个单实例 Relay 核心闭环验收通过，能力从 draft 升级为 current。
 - 2026-08-03：V0 部署基线验收通过，增加 Web assets 托管、readiness、metrics、迁移、在线 SQLite 备份和 Docker/Caddy 部署能力。
+- 2026-08-04：补齐服务端节点发现闭环。bootstrap 管理员可在任意浏览器经客户端既有 Relay 控制台契约（/login、/nodes、GET/PATCH/DELETE /api/nodes、/api/auth/me、/api/auth/logout）发现、打开、重命名和删除服务端节点；换浏览器或清站点数据后不再需要手记 /n/{nodeId}/，单用户 V0 形成端到端可用闭环。
+- 2026-08-04：Relay 持久化托管全部官方 release 的 web/assets（v0.1.8 起，逐文件校验 size + SHA-256，content-hash 文件只增不删），修复多版本客户端打开节点时主资源 404、被强制提示重新安装最新版的问题。

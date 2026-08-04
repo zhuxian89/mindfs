@@ -2,6 +2,8 @@
 doc_type: feature-design
 feature: 2026-08-04-cloud-node-discovery
 requirement: mindfs-compatible-cloud-backend
+roadmap: mindfs-cloud-relay
+roadmap_item: cloud-node-discovery
 status: approved
 summary: 让 bootstrap 管理员通过客户端既有 Relay 控制台契约查看、打开、重命名和删除 Cloud 节点
 tags: [mindfs, cloud, relay, nodes, compatibility, admin, v0]
