@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: mindfs-cloud-relay
 status: active
 created: 2026-08-03
-last_reviewed: 2026-08-04
+last_reviewed: 2026-08-05
 tags: [mindfs, cloud, relay, yamux, websocket, self-hosted, backend]
 related_requirements: [mindfs-compatible-cloud-backend]
 related_architecture: [cloud-relay-core]
@@ -17,7 +17,7 @@ MindFS 仓库包含本地节点、Web 前端、CLI 和 Relay 客户端，但不�
 
 本 roadmap 在仓库中新增一个完全独立的 cloud Go module，实现兼容 MINDFS_RELAY_BASE_URL 的后端。目标不是改造 MindFS，也不是让客户端适配新后端，而是让新后端持续兼容未修改的现有客户端。
 
-第一版本只交付远程访问的最小闭环，但完整规划保留生产化、多租户、Token Station 和内容分发能力，避免 V0 形成无法演进的临时代码。
+本 roadmap 以**未修改客户端/节点的可观察协议为唯一需求来源**：客户端或节点实际调用的接口必须兼容（兼容义务）；客户端不调用的能力一律视为可选愿景，不承诺实现。第一版本交付远程访问最小闭环；其后只补齐剩余客户端兼容缺口，不主动创造协议或平台能力。
 
 ## 2. 范围与明确不做
 
@@ -87,7 +87,8 @@ cloud/**
 - 不自行实现银行卡、微信、支付宝等支付网络，只定义支付适配器。
 - 不负责 Android/Harmony 应用签名私钥和应用商店发布。
 - 不复制官方私有账号数据、计费策略和运营后台行为。
-- V0 不支持多用户、横向扩容、Token Station 和 wildcard 本地服务域名。
+- 客户端/节点不调用的能力一律不做（Token 主动轮换、节点共享、多租户、Token Station 云端版、自定义域名等均为可选愿景，非兼容义务；详见第 5 节「非兼容愿景」）。
+- 注：本地服务子域名（`{slug}-{nodeId}-relay.{apex}`）是节点主动调用 `/api/device/nodes/{id}/services/{slug}` 的兼容缺口，须实现，不在「明确不做」之列。
 
 ## 3. 模块拆分（概设）
 
@@ -739,36 +740,33 @@ GET /mindfs-assets/{path}
    - 对应 feature：2026-08-04-cloud-node-discovery
    - 备注：2026-08-04 `cloud-v0-completion` 探查发现原 V0 三项虽 done，但缺服务端节点发现闭环（换浏览器或清站点数据后无法找回节点），按探查建议回填为 V0 修正项，使单用户 V0 形成可用闭环；只复用客户端既有契约，不新增协议、不实现多用户与 Token 主动轮换。
 
-### V1：完整自托管 Relay 后端
+### V1：兼容补完（客户端/节点驱动）
 
-5. **cloud-node-management** — 提供节点 Token 主动轮换与运营管理 API（节点列表、在线状态、重命名、删除及删除时 Token 撤销已在 V0 的 cloud-node-discovery 完成）。
-6. **relay-security-audit** — 完善认证、CSRF、限流、请求上限、Token 安全、审计和日志清洗。
-7. **relay-local-service-domains** — 实现本地服务注册、wildcard DNS/TLS 和 service hostname 转发。
+经逐项核对客户端与节点实际调用的 relay 端点，V0 之后**仅剩一个兼容缺口**：节点注册本地服务时调用 cloud 的 `PUT/DELETE /api/device/nodes/{nodeId}/services/{slug}`，客户端为每个服务生成 `{slug}-{nodeId}-relay.{apex}` 子域名 URL；cloud 目前对二者均 404 / 不路由，导致客户端「本地服务」功能在自建云上不可用。这是兼容义务，不是可选愿景。
 
-### V2：多用户生产平台后端
+5. **relay-local-service-domains** — 实现 device 鉴权的服务路由 API（`/api/device/nodes/{id}/services/{slug}`）与 `{slug}-{nodeId}-relay.{apex}` 公网子域名转发。
+   - 所属模块：Gateway、Connector、Store
+   - 依赖：relay-core-single-instance、relay-deployment-baseline（均已 done；不再依赖可选的 relay-security-audit）
+   - 状态：planned（下一个兼容必做项）
+   - 契约来源：请求格式见 `server/internal/relay/services.go`；响应格式黑盒官方 relay 获取
+   - 转发复用现有 gateway/yamux，带 `X-MindFS-Relay-Service-Slug` 头，节点侧代理到 `local_url`
+   - 部署侧需 wildcard DNS（`*.{apex}`）+ wildcard TLS（Cloudflare/Caddy），非 cloud 代码
 
-8. **cloud-account-tenancy** — 实现用户、租户、OIDC、本地登录和 RBAC API。
-9. **cloud-node-sharing** — 实现节点共享、邀请、ACL 和访问模式 API。
-10. **relay-postgres-control-plane** — 将控制面持久化迁移至 PostgreSQL。
-11. **relay-distributed-routing** — 实现 Redis presence、多实例 Connector owner 和内部 stream 转发。
-12. **relay-usage-quotas** — 实现流量、连接、节点数、并发和租户配额。
-13. **cloud-operations-observability** — 提供指标、追踪、告警、SLO 和运营管理 API，不开发管理前端。
-14. **relay-custom-domains** — 实现节点及附加服务自定义域名、验证和证书生命周期。
+### 非兼容愿景（不承诺，按目标启用）
 
-### V3：完整云生态后端
+以下各项**客户端/节点均不调用**，属"想从自托管升级为运营云平台"才需要的愿景，非兼容义务，未列入排期。按触发条件分组（细节见 items.yaml 各项 notes）：
 
-15. **token-station-account-ledger** — 实现账户、余额、额度、台账和 API Key 生命周期。
-16. **token-station-model-gateway** — 实现 OpenAI、Anthropic、Gemini 兼容模型网关和流式计量。
-17. **token-station-billing** — 实现钱包、充值订单、支付适配器和幂等回调。
-18. **hosted-agent-config** — 实现配置修订、发布、回滚和 /api/agents。
-19. **cloud-tips-content** — 实现 Tips 内容存储、投放规则和 /api/tips。
-20. **release-distribution** — 实现移动版本、制品元数据、校验和和下载镜像。
-21. **cloud-backup-recovery** — 实现数据库、Redis 元数据、内容和制品的备份恢复。
-22. **cloud-api-lifecycle** — 建立客户端兼容矩阵、API 版本、弃用窗口和跨版本回归测试。
+- **建多租户 SaaS 才需要**：cloud-account-tenancy、cloud-node-sharing（客户端零调用）、relay-postgres-control-plane（客户端不可见）、relay-distributed-routing（客户端不可见）、relay-usage-quotas、cloud-operations-observability、cloud-backup-recovery。
+- **与节点已实现功能重复（cloud 不必做）**：token-station-account-ledger / model-gateway / billing、hosted-agent-config（`/api/agents`）、cloud-tips-content（`/api/relay/tips`）——客户端均经 `appPath` 走节点。
+- **客户端不打自建云**：release-distribution（移动版本检查硬编码 `relay.a9gent.com`）。
+- **运维可选（非兼容）**：cloud-node-management（Token 主动轮换；客户端零调用，删除即撤销已满足）、relay-security-audit（限流/CSRF/审计加固；单用户 + Cloudflare 后风险低）。
+- **持续兼容维护纪律（已部分承载）**：cloud-api-lifecycle（兼容矩阵/回归；V0 compatibility-suite 与多版本资源已是其实例，按上游变更增量加强）。
+
+**已移除**：~~relay-custom-domains~~——客户端零调用、用户无需求（单 relay 域名由 Cloudflare/Caddy 在部署侧解决），不属于 cloud 兼容义务，从 roadmap 删除。
 
 **最小闭环**：relay-core-single-instance 完成后，未修改的 MindFS 客户端能够通过 MINDFS_RELAY_BASE_URL 完成绑定、建立 Connector，并从 cloud 的 /n/{nodeId} 入口正常使用 HTTP 和 WebSocket。
 
-**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。
+**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。剩余唯一客户端/节点驱动兼容缺口为 relay-local-service-domains（见 V1）。
 
 ## 6. 排期思路
 

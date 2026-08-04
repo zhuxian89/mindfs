@@ -1,5 +1,7 @@
 roadmap: mindfs-cloud-relay
 created: 2026-08-03
+last_reviewed: 2026-08-05
+compat_principle: "唯一需求来源是未修改客户端/节点的可观察协议；客户端不调用的能力一律为可选愿景，不承诺实现"
 
 items:
   - slug: relay-core-single-instance
@@ -34,13 +36,23 @@ items:
     minimal_loop: true
     notes: "V0 修正项；2026-08-04 cloud-v0-completion 探查发现原 V0 缺服务端节点发现闭环，回填为 V0；只复用客户端既有 /login、/nodes、GET/PATCH/DELETE /api/nodes、/api/auth/me、/api/auth/logout 契约，不新增协议或多用户；minimal_loop=true 因无此闭环则单用户 V0 不可用；不实现 Token 主动轮换（留 cloud-node-management）"
 
+  # ── V1：兼容补完（唯一客户端/节点驱动的剩余兼容缺口）──
+  - slug: relay-local-service-domains
+    description: "实现 device 鉴权的服务路由 API 与 {slug}-{nodeId}-relay.{apex} 公网子域名转发（带 X-MindFS-Relay-Service-Slug 头）"
+    depends_on: [relay-core-single-instance, relay-deployment-baseline]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "V1 兼容补完；唯一节点驱动兼容缺口：节点 PUT/DELETE /api/device/nodes/{id}/services/{slug}（device token 鉴权）目前 404，客户端生成的 {slug}-{nodeId}-relay.{apex} 子域名不路由，导致客户端「本地服务」功能在自建云上不可用；契约请求格式见 server/internal/relay/services.go，响应格式黑盒官方 relay 取；转发复用现有 gateway/yamux，部署侧需 wildcard DNS+TLS（Cloudflare/Caddy，非 cloud 代码）；不再依赖可选的 relay-security-audit"
+
+  # ── 非兼容愿景（客户端/节点不调用，不承诺，按目标启用）──
   - slug: cloud-node-management
     description: "提供节点 Token 主动轮换与运营管理后端 API"
     depends_on: [relay-core-single-instance, cloud-node-discovery]
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V1；节点列表、在线状态、重命名、删除及删除时 Token 撤销已在 cloud-node-discovery(V0) 完成；本项保留 Token 主动轮换与运营扩展，不开发或修改现有 MindFS 前端"
+    notes: "【非兼容·愿景·不承诺】Token 主动轮换；客户端零调用，删除即撤销已在 V0 满足；仅当未来需要运营级 token 安全才做"
 
   - slug: relay-security-audit
     description: "完善认证、CSRF、限流、请求上限、Token 安全、审计日志和敏感信息清洗"
@@ -48,15 +60,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V1；节点 CRUD 动作（cloud-node-discovery，已 done）与 Token 轮换（cloud-node-management）是安全审计的主要资源对象"
-
-  - slug: relay-local-service-domains
-    description: "实现本地附加服务注册、wildcard DNS/TLS 和 service hostname 转发"
-    depends_on: [relay-core-single-instance, relay-deployment-baseline, relay-security-audit]
-    status: planned
-    feature: null
-    minimal_loop: false
-    notes: "V1；只实现现有客户端已经调用的云端服务协议"
+    notes: "【非兼容·运维可选】非客户端驱动；单用户+Cloudflare 后风险低，仅当扩大暴露面时再做（review 已记 logout CSRF 等次要点）"
 
   - slug: cloud-account-tenancy
     description: "实现用户、租户、OIDC、本地登录和角色权限后端 API"
@@ -64,7 +68,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；不修改或扩展现有 MindFS 前端"
+    notes: "【非兼容·愿景·建 SaaS 才需要】多用户/租户；自托管单 bootstrap 账号已够用"
 
   - slug: cloud-node-sharing
     description: "实现节点共享邀请、ACL、访问模式和共享撤销后端 API"
@@ -72,7 +76,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；依赖稳定的节点资源和用户主体"
+    notes: "【非兼容·愿景·客户端零调用】共享/ACL；客户端不调任何 share 接口"
 
   - slug: relay-postgres-control-plane
     description: "将用户、节点、绑定、服务和审计控制面迁移到 PostgreSQL"
@@ -80,7 +84,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；迁移只发生在 cloud 数据模型内"
+    notes: "【非兼容·愿景·客户端不可见】SQLite→PG；纯扩容基建，客户端无感"
 
   - slug: relay-distributed-routing
     description: "实现 Redis presence、Connector owner 租约和跨实例 stream 转发"
@@ -88,7 +92,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；依赖共享控制面和内部实例鉴权"
+    notes: "【非兼容·愿景·客户端不可见】Redis/多实例；纯扩容基建"
 
   - slug: relay-usage-quotas
     description: "统计节点流量、并发、连接时长并执行租户和节点配额"
@@ -96,7 +100,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；多实例下统一聚合使用量"
+    notes: "【非兼容·愿景·计费才需要】配额；客户端不调配额接口"
 
   - slug: cloud-operations-observability
     description: "提供指标、追踪、告警、SLO、运营管理 API 和滥用处理能力"
@@ -104,7 +108,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V2；只提供后端 API 和标准观测接口，不开发管理前端"
+    notes: "【非兼容·运维】指标/告警/SLO；cloud 已有基础 /metrics，加强属运维非兼容"
 
   - slug: token-station-account-ledger
     description: "实现 Token Station 账户、余额、额度台账和 API Key 生命周期"
@@ -112,7 +116,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；依赖租户、可靠事务存储和计量基础"
+    notes: "【非兼容·与节点重复】客户端经 appPath(/api/token-station/*) 走节点；cloud 做是冗余"
 
   - slug: token-station-model-gateway
     description: "实现 OpenAI、Anthropic 和 Gemini 兼容模型网关及流式计量"
@@ -120,7 +124,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；调用费用必须幂等写入账户台账"
+    notes: "【非兼容·与节点重复】模型网关；客户端走节点，cloud 不必做"
 
   - slug: token-station-billing
     description: "实现钱包、充值订单、支付适配器和幂等支付回调"
@@ -128,7 +132,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；支付结果写入统一余额台账"
+    notes: "【非兼容·与节点重复】计费/充值；客户端走节点"
 
   - slug: hosted-agent-config
     description: "实现 Agent 配置修订、发布、回滚和兼容现有客户端的 /api/agents"
@@ -136,7 +140,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；只提供公共兼容后端接口，不修改 agents.json 或客户端加载逻辑"
+    notes: "【非兼容·与节点重复】/api/agents、/api/agent-config/* 经 appPath 走节点；cloud 做是冗余"
 
   - slug: cloud-tips-content
     description: "实现 Tips 内容存储、投放规则和兼容现有客户端的 /api/tips"
@@ -144,7 +148,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；不修改现有 Tips 客户端"
+    notes: "【非兼容·与节点重复】/api/relay/tips 经 appPath 走节点；cloud 做是冗余"
 
   - slug: release-distribution
     description: "实现 Android/Harmony 版本接口、制品元数据、校验和和下载镜像"
@@ -152,7 +156,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；不修改移动端版本检查代码或应用签名流程"
+    notes: "【非兼容·客户端不打自建云】/api/versions/{android,harmony} 硬编码 relay.a9gent.com，永远不问自建云"
 
   - slug: cloud-backup-recovery
     description: "实现数据库、Redis 元数据、内容配置和发布制品的备份恢复及灾备演练"
@@ -160,7 +164,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；所有备份对象均属于 cloud"
+    notes: "【非兼容·运维】备份恢复；客户端不可见，属运维"
 
   - slug: cloud-api-lifecycle
     description: "建立未修改客户端兼容矩阵、API 版本策略、弃用窗口和跨版本回归测试"
@@ -168,12 +172,6 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V3；上游协议变化时只修改 cloud 适配"
+    notes: "【兼容维护纪律·已部分承载】非功能项；V0 compatibility-suite + 多版本资源已是其实例，按上游变更增量加强"
 
-  - slug: relay-custom-domains
-    description: "实现节点和附加服务的自定义域名、所有权验证及证书生命周期"
-    depends_on: [relay-local-service-domains, cloud-node-sharing, relay-distributed-routing]
-    status: planned
-    feature: null
-    minimal_loop: false
-    notes: "V2；依赖域名网关、访问权限和多实例路由"
+  # 已移除：relay-custom-domains —— 客户端零调用、用户无需求（单 relay 域名由 Cloudflare/Caddy 部署侧解决），非 cloud 兼容义务
