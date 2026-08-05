@@ -39,7 +39,7 @@ items:
   - slug: cloud-email-accounts
     description: "实现仅 @qq.com 的邮箱验证码注册、邮箱密码登录和找回密码，并按用户隔离节点绑定与管理"
     depends_on: [relay-core-single-instance, relay-deployment-baseline, cloud-node-discovery]
-    status: in-progress
+    status: done
     feature: 2026-08-05-cloud-email-accounts
     minimal_loop: false
     notes: "V1 自建账号能力；注册使用 QQ 邮箱+自设密码+邮箱验证码，后续使用邮箱+自设密码登录；验证码另用于忘记密码。仅允许 @qq.com；使用 QQ SMTP 465 implicit TLS；现有 V0 节点由 bootstrap QQ 邮箱注册后认领。明确不做验证码日常登录、Google/GitHub/LinuxDo OAuth、OIDC、tenant、RBAC 和节点共享。"

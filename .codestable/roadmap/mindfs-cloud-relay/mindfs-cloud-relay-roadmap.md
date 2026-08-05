@@ -763,12 +763,12 @@ GET /mindfs-assets/{path}
 
 ### V1：兼容补完（客户端/节点驱动）
 
-经逐项核对官方 Relay 的公开页面与未修改客户端/节点调用，V0 后有两项可观察兼容能力：邮箱验证码账号与本地附加服务域名。账号能力现在推进；本地服务契约保留，但用户已明确暂停为 TODO。
+经逐项核对官方 Relay 的公开页面与未修改客户端/节点调用，V0 后有两项可观察兼容能力：邮箱验证码账号与本地附加服务域名。账号能力已完成；本地服务契约保留，但用户已明确暂停为 TODO。
 
 5. **cloud-email-accounts** — 实现仅 `@qq.com` 的验证码注册、邮箱密码登录和找回密码，并以用户账号隔离节点绑定、列表、重命名和删除。
    - 所属模块：Identity、Binding、Management API、Store、Config
    - 依赖：relay-core-single-instance、relay-deployment-baseline、cloud-node-discovery（均已 done）
-   - 状态：in-progress
+   - 状态：done
    - 对应 feature：2026-08-05-cloud-email-accounts
    - 兼容边界：未修改客户端只依赖 `/login`、`/api/auth/me`、logout 和认证后的节点页面；登录页内部采用自建的注册/密码登录流程
    - 范围：注册验证码、用户自设密码、邮箱密码登录、忘记/修改密码；仅 `@qq.com`；QQ SMTP 465 implicit TLS；现有节点由 bootstrap QQ 邮箱注册后认领；节点管理按 owner 隔离
@@ -796,7 +796,7 @@ GET /mindfs-assets/{path}
 
 **最小闭环**：relay-core-single-instance 完成后，未修改的 MindFS 客户端能够通过 MINDFS_RELAY_BASE_URL 完成绑定、建立 Connector，并从 cloud 的 /n/{nodeId} 入口正常使用 HTTP 和 WebSocket。
 
-**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束。V1 当前推进 cloud-email-accounts；本地服务兼容特例 relay-local-service-domains 继续作为暂停的 TODO。
+**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束。V1 的 cloud-email-accounts 已完成并部署验证；本地服务兼容特例 relay-local-service-domains 按用户决定继续暂停，不属于当前交付。
 
 ## 6. 排期思路
 
@@ -818,5 +818,6 @@ V1 先补官方公开页面可观察的邮箱验证码账号与节点 owner 隔�
 ## 8. 变更日志
 
 - 2026-08-05：根据用户最终确认，将 V1 `cloud-email-accounts` 收敛为仅 `@qq.com` 的验证码注册、邮箱密码登录、密码找回/修改、Session 与节点 owner 隔离；验证码不用于日常登录，明确排除邮箱密码采集、OAuth/OIDC/tenant/RBAC；现有节点由 bootstrap QQ 邮箱注册后认领。
+- 2026-08-05：`cloud-email-accounts` 验收完成；线上注册由用户确认，登录页桌面/移动端、owner 隔离、V0 迁移和未修改客户端 compat 均通过。`relay-local-service-domains` 继续保持暂停 TODO。
 - 2026-08-03：关联 mindfs-compatible-cloud-backend requirement；补充确定性 HMAC device token 派生、只存 hash、confirmed 幂等重放和独立 MINDFS_CLOUD_TOKEN_KEY 契约。
 - 2026-08-03：部署契约补充 MINDFS_CLOUD_ASSETS_DIR 与 /mindfs-assets/{path}，确保未修改 Node 的 release 静态路径重写在自建 Cloud 中可实际加载。

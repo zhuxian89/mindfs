@@ -2,7 +2,7 @@
 
 > 状态：current
 > 创建日期：2026-08-02
-> 最近核对：2026-08-03
+> 最近核对：2026-08-05
 
 ## 1. 项目简介
 
@@ -13,10 +13,12 @@ MindFS 仓库包含现有本地 Node、Web、CLI 和移动端上游代码，并�
 - **MindFS Node**：本地运行并主动连接 Relay 的现有 `server` 进程。
 - **Cloud Relay**：负责绑定、Connector 和公网 HTTP/WS 反向转发的独立后端。
 - **Relay Session**：Cloud Relay 为在线 Node 持有的 `yamux.Server` session。
+- **Cloud User**：使用 QQ 邮箱验证码注册、邮箱与 Relay 密码登录的自托管用户。
+- **Node Owner**：节点管理控制面的用户归属；不改变 Gateway/Connector 数据面认证。
 
 ## 3. 子系统 / 模块索引
 
-- [Cloud Relay 核心架构](cloud-relay-core.md) — 单实例 Binding、Connector、yamux、HTTP/WS Gateway、SQLite 和内存 Session Registry。
+- [Cloud Relay 核心架构](cloud-relay-core.md) — QQ 邮箱身份、owner-scoped 节点控制面、单实例 Binding/Connector/yamux/Gateway、SQLite 和内存 Session Registry。
 
 ## 4. 关键架构决定
 

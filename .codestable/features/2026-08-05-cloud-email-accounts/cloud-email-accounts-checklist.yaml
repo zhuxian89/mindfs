@@ -29,100 +29,100 @@ steps:
 checks:
   - item: "User 以唯一规范化 @qq.com 邮箱为登录账号，不存在注册用户名"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "User 密码只保存 Argon2id PHC hash，pending bootstrap User 允许空 hash"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "注册验证码与重置验证码按 purpose 隔离，保存 keyed hash 而非明文"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "POST /api/auth/register/request-code 返回 resend_after_seconds，并在非 QQ 邮箱时发信前拒绝"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "POST /api/auth/register 使用 email/password/code 激活账号并建立 Session"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "POST /api/auth/login 只接受 email/password，错误统一 invalid_credentials"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "password request-code/reset/change 覆盖忘记密码和登录后修改密码"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "Node 管理使用 owner-scoped Store 契约，Gateway 全局 GetNode 保持不变"
     source: 名词契约
-    status: pending
+    status: passed
   - item: "注册、密码登录、密码恢复、Session 和 Node owner 主流程按 design 流程图连接"
     source: 编排骨架
-    status: pending
+    status: passed
   - item: "密码 8-128 字符、Argon2id、登录枚举防护和持久化限流约束落地"
     source: 流程级约束
-    status: pending
+    status: passed
   - item: "验证码 6 位、10 分钟、60 秒重发、5 次尝试、单次并发消费约束落地"
     source: 流程级约束
-    status: pending
+    status: passed
   - item: "Session 为至少 256 bit 随机 Token、12 小时 TTL 和安全 Cookie"
     source: 流程级约束
-    status: pending
+    status: passed
   - item: "SMTP 只使用 smtp.qq.com:465 implicit TLS 且不降级明文"
     source: 流程级约束
-    status: pending
+    status: passed
   - item: "Auth 路由与登录页面挂载完整"
     source: 挂载点
-    status: pending
+    status: passed
   - item: "VPS .env、SMTP 配置和数据目录 Identity Key 挂载完整"
     source: 挂载点
-    status: pending
+    status: passed
   - item: "SQLite users/codes/sessions/rate-limit/owner schema 挂载完整"
     source: 挂载点
-    status: pending
+    status: passed
   - item: "Binding current User 与官方/V0 请求体兼容挂载完整"
     source: 挂载点
-    status: pending
+    status: passed
   - item: "Nodes API owner 过滤挂载完整"
     source: 挂载点
-    status: pending
+    status: passed
   - item: "不实现验证码日常登录、QQ 邮箱密码采集、OAuth/OIDC、tenant/RBAC、共享、邀请码或用户名"
     source: 范围守护
-    status: pending
+    status: passed
   - item: "不修改 Gateway/Connector 数据面认证语义"
     source: 范围守护
-    status: pending
+    status: passed
   - item: "不修改上游只读路径和暂停的 local-service draft"
     source: 范围守护
-    status: pending
+    status: passed
   - item: "合法 QQ 邮箱可收注册码，非 QQ 邮箱发信前拒绝"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "注册后可反复使用邮箱和 Relay 密码登录，无需验证码"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "密码边界、active 重复注册和 pending bootstrap 认领行为正确"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "未注册/pending/disabled/错误密码登录统一失败且无账号枚举"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "注册与重置验证码不可互用，过期/错误/消费/并发重放行为正确"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "忘记和修改密码后旧密码/旧 Session 按契约失效"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "me/logout 与旧 AdminSession 失效行为正确"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "登录页包含登录/注册/忘记密码且不含范围外入口"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "双用户节点隔离、越权 404 和 owner 删除撤销行为正确"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "V0 数据库升级和 bootstrap QQ 邮箱注册认领不丢节点"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "Gateway/Connector/E2EE/assets/backup/health/metrics 无回归"
     source: 验收场景
-    status: pending
+    status: passed
   - item: "真实 SMTP 授权码不进入 Git、SQLite、日志或 HTTP 响应"
     source: 验收场景
-    status: pending
+    status: passed

@@ -1,11 +1,11 @@
 ---
 doc_type: architecture
 slug: cloud-relay-core
-scope: cloud/ 独立 Go module 中的单实例 MindFS Relay 核心数据面、绑定控制面与 V0 部署运维边界
-summary: 未修改的 MindFS Node 通过绑定、Connector WebSocket 和 yamux 接入，Cloud Relay 提供公网转发、共享 Web assets、探活、指标、迁移、备份和容器部署
+scope: cloud/ 独立 Go module 中的单实例 MindFS Relay 数据面、QQ 邮箱身份控制面、节点 owner 隔离与部署运维边界
+summary: 未修改的 MindFS Node 通过绑定、Connector WebSocket 和 yamux 接入，QQ 邮箱用户通过密码 Session 管理自己的节点，Cloud Relay 提供公网转发与自托管运维能力
 status: current
-last_reviewed: 2026-08-04
-tags: [mindfs, cloud, relay, binding, yamux, websocket, sqlite, compatibility, e2ee, deployment, docker, backup]
+last_reviewed: 2026-08-05
+tags: [mindfs, cloud, relay, identity, qq, smtp, multi-user, binding, yamux, websocket, sqlite, compatibility, e2ee, deployment, docker, backup]
 depends_on: []
 implements: [mindfs-compatible-cloud-backend]
 ---
@@ -16,7 +16,11 @@ implements: [mindfs-compatible-cloud-backend]
 
 - **MindFS Node**：现有 `server` 进程及其 Relay 客户端。它主动连接 Cloud Relay，现有源码保持只读。
 - **Cloud Relay**：`cloud/` 独立 Go module 运行的后端进程，拥有绑定控制面和公网转发数据面。
-- **Binding Challenge**：Node 生成 code 后由 Cloud Relay 首次观察、管理员确认的一次绑定状态。
+- **Cloud User**：以唯一规范化 `@qq.com` 邮箱标识的 Relay 用户；注册时设置 Relay 密码，日常使用邮箱和该密码登录。
+- **Cloud Session**：注册或邮箱密码登录后建立的 12 小时浏览器会话；Cookie 保存随机 Token，SQLite 只保存 hash。
+- **Node Owner**：确认绑定时的当前 Cloud User；节点列表、重命名和删除按 owner 隔离。
+- **Bootstrap User**：V0 升级时承接既有节点的 pending QQ 账号；该邮箱完成验证码注册后激活并认领原节点。
+- **Binding Challenge**：Node 生成 code 后由 Cloud Relay 首次观察、当前 Cloud User 确认的一次绑定状态。
 - **Device Token**：Node 建立 Connector 时使用的 Bearer 凭据；明文只在 confirmed 响应中出现。
 - **Connector**：Node 主动建立的长期 WebSocket，内部承载 yamux 字节流。
 - **Relay Session**：Cloud Relay 为一个在线 Node 持有的 `yamux.Server` session。
@@ -24,7 +28,7 @@ implements: [mindfs-compatible-cloud-backend]
 - **Public Node Route**：公网侧 `/n/{nodeId}/...` 路径；进入 Node 前会去掉节点前缀。
 - **Multi-release Asset Repository**：持久化保存当前 bundle 与所有受支持官方 release Web assets 的全局资源集合；content-hashed 文件只增不删。
 
-这些名词在代码中的类型入口为 `cloud/internal/store/contracts.go:18`、`cloud/internal/connector/registry.go:18` 和 `cloud/internal/gateway/http.go:122`。
+这些名词在代码中的类型入口为 `cloud/internal/store/contracts.go`、`cloud/internal/identity/service.go`、`cloud/internal/connector/registry.go` 和 `cloud/internal/gateway/http.go`。
 
 ## 1. 定位与受众
 
@@ -37,7 +41,9 @@ Cloud Relay 是仓库中与现有 MindFS 上游隔离的兼容后端。它只依
 ```mermaid
 flowchart LR
     Node[MindFS Node] -->|bind poll| Binding[Binding Service]
-    Admin[Admin Browser] -->|login + confirm| Binding
+    User[QQ Email User] -->|register / password login| Identity[Identity Service]
+    Identity --> SQLite
+    User -->|confirm bind + manage owned nodes| Binding
     Binding --> SQLite[(SQLite)]
     Node -->|Bearer WebSocket| Connector[Connector Handler]
     Connector --> Registry[Session Registry]
@@ -50,27 +56,31 @@ flowchart LR
     Remote -->|/mindfs-assets/file| Assets
 ```
 
-- `app.New` 先打开 SQLite、清理过期记录，再装配 Binding、Connector、Gateway 和 Session Registry；数据库不可用时启动失败。代码锚点：`cloud/app/app.go:34`。
-- Binding 首次 poll 原子创建 challenge；管理员确认在同一 SQLite 事务中创建 Node、Token hash 并确认 challenge；同一 code/device 后续重新派生相同 Token。代码锚点：`cloud/internal/binding/service.go:71`、`cloud/internal/store/sqlite.go:124`。
+- `app.New` 先打开 SQLite、幂等补齐 identity/owner schema、把 V0 ownerless 节点归给 bootstrap QQ 用户，再加载或创建 `identity.key`，装配 Identity、Binding、Connector、Gateway 和 Session Registry；数据库或身份配置不可用时启动失败。代码锚点：`cloud/app/app.go:43`、`cloud/internal/store/sqlite.go:24`。
+- Identity Service 负责 QQ 邮箱准入、注册/重置验证码、Argon2id 密码、登录限流和 UserSession；注册、验证码消费与 Session 创建使用同一事务。代码锚点：`cloud/internal/identity/service.go`、`cloud/internal/store/sqlite_identity.go`。
+- Binding 首次 poll 原子创建 challenge；当前 Cloud User 确认时在同一 SQLite 事务中写入 challenge claimant、Node owner、Token hash；同一用户对 confirmed code 重试保持幂等，其他用户得到 claimed。代码锚点：`cloud/internal/binding/service.go`、`cloud/internal/store/sqlite_binding.go`。
 - Connector 在 WebSocket 升级前验证 Bearer Token，升级后用严格 binary WebSocket `net.Conn` 创建 `yamux.Server`。代码锚点：`cloud/internal/connector/handler.go:41`、`cloud/internal/connector/wsconn.go:25`。
 - Session Registry 以 node ID 保存唯一 active session；替换时先登记新 connection ID，再关闭旧 session，旧连接的延迟清理不会删除新连接。代码锚点：`cloud/internal/connector/registry.go:43`。
 - HTTP Gateway 先查 Node 和在线 session，打开 stream，去掉 `/n/{nodeId}`，重建内部 Header，再流式转发 request/response。代码锚点：`cloud/internal/gateway/http.go:44`。
 - WebSocket Gateway 先把 Upgrade request 发给 Node；只有 Node 返回 101 才升级公网侧，随后在 WebSocket message 与 MindFS data/close frame 间双向桥接。代码锚点：`cloud/internal/gateway/websocket.go:35`。
 - Gateway 为 Node 生成 `X-MindFS-Relayed: 1`；该值是未修改 Node 进入 release 静态资源重写分支的严格协议契约。代码锚点：`cloud/internal/gateway/http.go:156`。
-- Relay 浏览器控制台（`/nodes`）受 bootstrap AdminSession 保护：未登录跳 `/login?next=`，登录后由 `GET /api/nodes` 一次读取 SQLite 节点并合并 Registry 在线状态，生成同源 `/n/{id}/` 并按 online→最近在线→创建时间→ID 确定性排序；支持 rename/delete，写操作校验同源 Origin + SameSite Cookie。删除节点在单事务内撤销 node 与 Device Token，再关闭该节点 active session。代码锚点：`cloud/app/relay_nodes_handlers.go`、`cloud/app/relay_browser_handlers.go`。`/api/nodes` 是 Relay 控制台契约，`/api/dirs` 是 Node 内部 managed roots 契约，二者不混用。
+- Relay 浏览器控制台（`/nodes`）受 Cloud Session 保护：未登录跳 `/login?next=`；`/login` 提供登录、注册和忘记密码三种模式。登录后 `GET /api/nodes` 只读取当前 owner 的 SQLite 节点并合并 Registry 在线状态，按 online→最近在线→创建时间→ID 确定性排序；rename/delete 同时校验 owner 和同源 Origin。越权统一 `node_not_found`，成功删除才撤销 Device Token 并关闭 active session。代码锚点：`cloud/app/identity_handlers.go`、`cloud/app/relay_browser_handlers.go`、`cloud/app/relay_nodes_handlers.go`。
 
-路由表集中在 `cloud/app/app.go`，除 Binding、Connector 和 Public Node Route 外，还挂载 `/healthz`、`/readyz`、`/metrics`、`/mindfs-assets/`，以及 Relay 浏览器控制台 `/nodes`、`/login` 和 Relay 控制台 API `GET/PATCH/DELETE /api/nodes`、`GET /api/auth/me`、`POST /api/auth/logout`。Relay 从只读挂载的持久化多 release repository 提供共享 assets；成功响应使用一年 immutable 缓存，缺失或非法路径明确返回 `Cache-Control: no-store`。
+路由表集中在 `cloud/app/app.go`。身份入口包括 register request-code/register、email/password login、password reset/change、me/logout；控制面保留 `/bind`、`GET/PATCH/DELETE /api/nodes`，数据面保留 Connector 与 `/n/{nodeId}`。Relay 从只读挂载的持久化多 release repository 提供共享 assets；成功响应使用一年 immutable 缓存，缺失或非法路径明确返回 `Cache-Control: no-store`。
 
 ## 3. 数据与状态
 
-SQLite 只拥有四类控制面数据：
+SQLite 拥有七类控制面数据：
 
-- `admin_sessions`：管理员 Session hash、CSRF hash 和有效期。
-- `bind_challenges`：code hash、设备归属、状态、node ID、派生版本和有效期。
-- `nodes`：Node 身份、名称、状态、访问模式和最近在线时间。
+- `users`：QQ 邮箱、Argon2id PHC password hash、状态和密码/登录时间；pending bootstrap user 允许空 hash。
+- `email_verification_codes`：按 register/password_reset purpose 隔离的 HMAC code hash、随机 nonce、来源 hash、有效期、冷却和剩余尝试。
+- `user_sessions`：Session hash、user ID、12 小时有效期和最近使用时间。
+- `auth_rate_limits`：按邮箱和请求来源 HMAC subject 持久化的小时窗口计数。
+- `bind_challenges`：code hash、设备归属、claimed user、状态、node ID、派生版本和有效期。
+- `nodes`：Node 身份、owner user、名称、状态、访问模式和最近在线时间。
 - `device_tokens`：Token hash、Node 归属、状态和使用时间。
 
-Schema 位于 `cloud/internal/store/schema.sql:1`，对应值对象和 Store 契约位于 `cloud/internal/store/contracts.go:18`。确认事务位于 `cloud/internal/store/sqlite.go:124`，数据库不保存 Device Token 明文、Token Key、管理员密码或业务 payload。
+Schema 位于 `cloud/internal/store/schema.sql`，对应值对象和 Store 契约位于 `cloud/internal/store/contracts.go`。数据库不保存验证码、Relay 密码、Session Token、Device Token、SMTP 授权码或业务 payload 明文。Identity Key 以 `0600` 文件独立保存在 Cloud data directory。
 
 在线连接不写数据库。`Registry` 只在当前进程内保存 `node ID -> connection ID + RelaySession`，进程重启后为空，Node 使用已持久化 Token 自动重连。代码锚点：`cloud/internal/connector/registry.go:38`。
 
@@ -82,12 +92,16 @@ Schema 位于 `cloud/internal/store/schema.sql:1`，对应值对象和 Store 契
 - 每个 Node 只有一个 active Relay Session，新连接优先。来源：`relay-core-single-instance-design.md` 流程级约束。
 - Gateway 不解析或解密 E2EE Header、body 和 WebSocket payload。来源：`relay-core-single-instance-design.md` 第 1、2.2 节。
 - `/mindfs-assets/` 保持未修改客户端既有的全局路径。Cloud 通过持久 volume 合并当前镜像 bundle 与 `v0.1.8` 起的官方 release assets，hashed 文件只增不删且同名不同内容立即失败。来源：官方多版本 HTTP 响应与 `relay-node-assets-unavailable-analysis.md`。
+- 账号只接受规范化后域名严格等于 `qq.com` 的邮箱；注册使用验证码和用户自设 Relay 密码，后续日常登录不发送验证码。来源：`cloud-email-accounts-design.md`。
+- 密码使用 Argon2id PHC hash；验证码按 purpose + email + code + nonce 使用 Identity Key HMAC，10 分钟有效、60 秒冷却、最多 5 次错误尝试。来源：`cloud-email-accounts-design.md`。
+- Node owner 只约束绑定确认和节点管理控制面；Gateway、Connector、HTTP/WS/E2EE 不依赖 Cloud Session。来源：`cloud-email-accounts-design.md`。
 
 ## 5. 代码锚点
 
 - `cloud/cmd/mindfs-relay/main.go:main` — 配置加载、HTTP Server 和优雅关闭。
 - `cloud/app/app.go:New` — SQLite、服务、Registry 与路由装配。
-- `cloud/internal/config/config.go:Load` — 七个 V0 环境配置键、Asset Bundle 校验及默认时限。
+- `cloud/internal/config/config.go:Load` — Relay、QQ SMTP、bootstrap email、Asset Bundle 校验及默认时限。
+- `cloud/internal/identity/` — QQ 邮箱规范化、Argon2id、Identity Key、SMTP 和身份流程。
 - `cloud/internal/binding/service.go:Service` — challenge 状态机和绑定确认编排。
 - `cloud/internal/binding/token.go:DeviceTokenService` — HMAC 派生与 Token hash 鉴权。
 - `cloud/internal/connector/handler.go:Handler` — Connector 鉴权、WebSocket 和 `yamux.Server`。
@@ -95,14 +109,14 @@ Schema 位于 `cloud/internal/store/schema.sql:1`，对应值对象和 Store 契
 - `cloud/internal/gateway/http.go:Handler` — Public Node Route 与 HTTP 反向转发。
 - `cloud/internal/gateway/websocket.go:ServeWebSocket` — 101 协调与 data/close frame 桥接。
 - `cloud/internal/assetsync/service.go:Sync` — 当前 bundle 合并、官方 release 分页发现、archive 校验、安全提取和完整性 marker。
-- `cloud/internal/store/sqlite.go:SQLiteStore` — V0 SQLite repository。
+- `cloud/internal/store/sqlite.go:SQLiteStore`、`sqlite_identity.go`、`sqlite_binding.go`、`sqlite_nodes.go` — schema 迁移、身份、绑定和 owner-scoped repository。
 - `cloud/internal/store/backup.go:BackupSQLite` — 在线 SQLite 快照、目标守护和 integrity check。
 - `cloud/internal/ops/` — migrate、backup、healthcheck 与低敏 Prometheus metrics。
 - `cloud/Dockerfile`、`cloud/deploy/` — Web + Cloud 多阶段镜像、Compose、Caddy 和运维说明。
 
 ## 6. 黑盒兼容验证
 
-`cloud/compat/` 从 Cloud 侧构建并启动真实 `mindfs-relay` 与未修改 `cli/cmd`，使用真实 TCP、SQLite、磁盘凭据、Connector WebSocket 和 yamux 验证完整链路。默认测试只编译并 skip 重型场景；显式命令为：
+`cloud/compat/` 从 Cloud 侧构建并启动真实 `mindfs-relay` 与未修改 `cli/cmd`，测试启动前通过 Identity Service 和 fake sender 注册临时 QQ 用户，再使用公开 email/password API 登录；随后用真实 TCP、SQLite、Connector WebSocket 和 yamux 验证完整链路。默认测试只编译并 skip 重型场景；显式命令为：
 
 ```bash
 cd cloud
@@ -127,18 +141,18 @@ mindfs-relay healthcheck
 mindfs-relay sync-assets /opt/mindfs/web /var/lib/mindfs-assets
 ```
 
-`validate` 只输出非敏感结果；`migrate` 幂等执行 embedded schema；`backup` 使用 SQLite `VACUUM INTO` 生成不覆盖已有文件的 `0600` 一致性快照并执行 `PRAGMA integrity_check`；`healthcheck` 只访问本机 `/readyz` 且不打印响应 body；`sync-assets` 合并当前 bundle 和官方正式 release，不删除已有历史资源。
+`validate` 只输出非敏感结果；`migrate` 幂等执行 embedded schema 并迁移 bootstrap node owner；`backup` 使用 SQLite `VACUUM INTO` 生成不覆盖已有文件的 `0600` 一致性快照并执行 `PRAGMA integrity_check`；`healthcheck` 只访问本机 `/readyz` 且不打印响应 body；`sync-assets` 合并当前 bundle 和官方正式 release，不删除已有历史资源。
 
 `/healthz` 仅代表进程存活，`/readyz` 每次检查 SQLite、`index.html`、`assets/` 目录及 index 实际引用的本地 JS/CSS，`/metrics` 只按 method/status 聚合 request count 与 duration。`MINDFS_CLOUD_ASSETS_DIR` 指向合并后的 repository；Cloud 的 `/mindfs-assets/{path}` 用受限文件根读取普通文件并拒绝遍历、目录和越界 symlink。
 
-容器从仓库根以独立 stage 构建现有 `web/` 和 `cloud/`，最终使用 distroless non-root 用户。Compose 的一次性 `asset-sync` 服务读写 `relay-assets` volume，成功完成后 Relay 才启动并以只读方式挂载该 volume；SQLite data 与 backup 使用独立 volume。Caddy 在 Cloud 外终止 TLS/WSS；示例位于 `cloud/deploy/`。
+容器从仓库根以独立 stage 构建现有 `web/` 和 `cloud/`，最终使用 distroless non-root 用户。Compose 从 Git ignored、建议 `0600` 的 `cloud/deploy/.env` 注入 QQ SMTP 和 bootstrap email；SMTP 授权码不进入 Git 或 SQLite。Caddy/OpenResty 在 Cloud 外终止 TLS/WSS，并保留 Host、scheme 与 WebSocket upgrade headers。
 
 ## 8. 已知约束 / 边界情况
 
 - 这是单进程实现，但支持多个 Node；不支持多实例共享 presence。
 - TLS 可以在外部终止；Connector endpoint 的 `ws/wss` 只由可信 `MINDFS_CLOUD_PUBLIC_URL` 决定。
-- 管理员是单个 bootstrap 账号；提供客户端兼容的节点 list/rename/delete（`/nodes` 控制台 + `/api/nodes`），不提供节点共享、Token 轮换、多用户或 OIDC API。
-- 不包含 Token Station、本地服务域名、托管内容、版本下载、PostgreSQL、Redis、Docker 或生产反代模板。
+- Cloud 支持多个 QQ 邮箱用户，但不提供用户名、其他邮箱、OAuth/OIDC、tenant、RBAC、邀请或节点共享。
+- 本地附加服务域名是唯一暂停的兼容特例，保持 TODO；不包含 Token Station、PostgreSQL、Redis、多实例或配额平台。
 - 单条 WebSocket message 上限固定为 32 MiB；未知 frame 或非法 opcode 以 1002 关闭，超限以 1009 关闭。
 - 上游协议变化时只修改 `cloud/**` 适配，不修改现有 MindFS Node、Web、CLI 或移动端。
 - 首次 `asset-sync` 依赖 GitHub Releases 可用并需要约 111 MiB 持久磁盘；后续同步幂等，只追加新 release 或修复缺失的 hashed 文件。
@@ -154,3 +168,5 @@ mindfs-relay sync-assets /opt/mindfs/web /var/lib/mindfs-assets
 - Compatibility acceptance：`features/2026-08-03-relay-compatibility-suite/relay-compatibility-suite-acceptance.md`
 - Deployment design：`features/2026-08-03-relay-deployment-baseline/relay-deployment-baseline-design.md`
 - Deployment acceptance：`features/2026-08-03-relay-deployment-baseline/relay-deployment-baseline-acceptance.md`
+- Email accounts design：`features/2026-08-05-cloud-email-accounts/cloud-email-accounts-design.md`
+- Email accounts acceptance：`features/2026-08-05-cloud-email-accounts/cloud-email-accounts-acceptance.md`
