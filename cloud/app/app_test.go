@@ -65,6 +65,37 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestBindPageWaitsForConnectorBeforeRevealingNodeLink(t *testing.T) {
+	publicURL, _ := url.Parse("https://relay.example.com")
+	var tokenKey [32]byte
+	application, err := newTestApp(t, testConfig(t, publicURL, tokenKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/bind?code=pc_test", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, contract := range []string{
+		"waitForNodeOnline(body.node_id,body.node_url)",
+		"fetch('/api/nodes',{cache:'no-store'})",
+		"node&&node.status==='online'",
+		"Binding confirmed. Waiting for the node to connect...",
+		"Binding confirmed. The node is still connecting. Keep this page open.",
+	} {
+		if !strings.Contains(body, contract) {
+			t.Fatalf("bind page missing %q", contract)
+		}
+	}
+	if count := strings.Count(body, "nodeLink.classList.remove('hidden')"); count != 1 {
+		t.Fatalf("node link reveal count = %d, want 1 online-gated reveal", count)
+	}
+}
+
 func TestBindingFlowIsIdempotentAndProtectsOwnership(t *testing.T) {
 	publicURL, _ := url.Parse("https://relay.example.com")
 	var tokenKey [32]byte
