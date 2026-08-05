@@ -43,7 +43,7 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "V1 兼容补完；唯一节点驱动兼容缺口：节点 PUT/DELETE /api/device/nodes/{id}/services/{slug}（device token 鉴权）目前 404，客户端生成的 {slug}-{nodeId}-relay.{apex} 子域名不路由，导致客户端「本地服务」功能在自建云上不可用；契约请求格式见 server/internal/relay/services.go，响应格式黑盒官方 relay 取；转发复用现有 gateway/yamux，部署侧需 wildcard DNS+TLS（Cloudflare/Caddy，非 cloud 代码）；不再依赖可选的 relay-security-audit"
+    notes: "【TODO·用户明确暂停】V1 唯一节点驱动兼容特例；当前不实现、不部署，未获用户重新启用前不得要求 wildcard DNS/TLS/OpenResty 操作。节点 PUT/DELETE /api/device/nodes/{id}/services/{slug} 与服务子域名路由契约留待未来重新设计。"
 
   # ── 非兼容愿景（客户端/节点不调用，不承诺，按目标启用）──
   - slug: cloud-node-management

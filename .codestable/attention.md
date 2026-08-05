@@ -21,3 +21,4 @@
 ### 其他
 
 - Cloud Relay 的实现以未修改客户端源码、公开 release 产物和官方接口/HTTP 响应为三方证据，复刻官方协议语义；不得用修改客户端或偏离官方路径契约的替代方案。
+- `relay-local-service-domains` 是唯一已知的本地服务兼容特例，但用户已明确暂停为 TODO；未获重新启用前不得实现，也不得要求用户配置 wildcard DNS/TLS 或 OpenResty。

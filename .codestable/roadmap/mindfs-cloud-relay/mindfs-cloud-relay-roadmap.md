@@ -742,15 +742,15 @@ GET /mindfs-assets/{path}
 
 ### V1：兼容补完（客户端/节点驱动）
 
-经逐项核对客户端与节点实际调用的 relay 端点，V0 之后**仅剩一个兼容缺口**：节点注册本地服务时调用 cloud 的 `PUT/DELETE /api/device/nodes/{nodeId}/services/{slug}`，客户端为每个服务生成 `{slug}-{nodeId}-relay.{apex}` 子域名 URL；cloud 目前对二者均 404 / 不路由，导致客户端「本地服务」功能在自建云上不可用。这是兼容义务，不是可选愿景。
+经逐项核对客户端与节点实际调用的 relay 端点，V0 之后存在一个本地服务兼容特例：节点注册本地服务时调用 cloud 的 `PUT/DELETE /api/device/nodes/{nodeId}/services/{slug}`，客户端为每个服务生成 `{slug}-{nodeId}-relay.{apex}` 子域名 URL；cloud 目前对二者均 404 / 不路由。该契约保留，但用户已明确暂停为 TODO，当前不实现。
 
 5. **relay-local-service-domains** — 实现 device 鉴权的服务路由 API（`/api/device/nodes/{id}/services/{slug}`）与 `{slug}-{nodeId}-relay.{apex}` 公网子域名转发。
    - 所属模块：Gateway、Connector、Store
    - 依赖：relay-core-single-instance、relay-deployment-baseline（均已 done；不再依赖可选的 relay-security-audit）
-   - 状态：planned（下一个兼容必做项）
+   - 状态：planned / TODO（2026-08-05 用户明确暂停；未重新启用前不实现、不部署）
    - 契约来源：请求格式见 `server/internal/relay/services.go`；响应格式黑盒官方 relay 获取
    - 转发复用现有 gateway/yamux，带 `X-MindFS-Relay-Service-Slug` 头，节点侧代理到 `local_url`
-   - 部署侧需 wildcard DNS（`*.{apex}`）+ wildcard TLS（Cloudflare/Caddy），非 cloud 代码
+   - 恢复该 TODO 后才进入部署确认；当前不要求 wildcard DNS/TLS/OpenResty 操作
 
 ### 非兼容愿景（不承诺，按目标启用）
 
@@ -766,7 +766,7 @@ GET /mindfs-assets/{path}
 
 **最小闭环**：relay-core-single-instance 完成后，未修改的 MindFS 客户端能够通过 MINDFS_RELAY_BASE_URL 完成绑定、建立 Connector，并从 cloud 的 /n/{nodeId} 入口正常使用 HTTP 和 WebSocket。
 
-**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。剩余唯一客户端/节点驱动兼容缺口为 relay-local-service-domains（见 V1）。
+**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。本地服务兼容特例 relay-local-service-domains 已保留为暂停的 TODO（见 V1）。
 
 ## 6. 排期思路
 
