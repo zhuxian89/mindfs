@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -10,11 +11,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"mindfs-cloud/internal/config"
+	"mindfs-cloud/internal/identity"
 )
+
+type testMailSender struct {
+	mu    sync.Mutex
+	codes map[string]string
+}
+
+func (s *testMailSender) SendVerificationCode(_ context.Context, email string, purpose identity.VerificationPurpose, code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.codes == nil {
+		s.codes = make(map[string]string)
+	}
+	s.codes[email+":"+string(purpose)] = code
+	return nil
+}
+
+func (s *testMailSender) code(t *testing.T, email string, purpose identity.VerificationPurpose) string {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	code := s.codes[email+":"+string(purpose)]
+	if code == "" {
+		t.Fatalf("no code for %s %s", email, purpose)
+	}
+	return code
+}
 
 func TestHealth(t *testing.T) {
 	publicURL, err := url.Parse("http://localhost:8080")
@@ -23,7 +52,7 @@ func TestHealth(t *testing.T) {
 	}
 	var tokenKey [32]byte
 	copy(tokenKey[:], []byte("01234567890123456789012345678901"))
-	application, err := New(testConfig(t, publicURL, tokenKey))
+	application, err := newTestApp(t, testConfig(t, publicURL, tokenKey))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -40,7 +69,7 @@ func TestBindingFlowIsIdempotentAndProtectsOwnership(t *testing.T) {
 	publicURL, _ := url.Parse("https://relay.example.com")
 	var tokenKey [32]byte
 	copy(tokenKey[:], []byte("01234567890123456789012345678901"))
-	application, err := New(testConfig(t, publicURL, tokenKey))
+	application, err := newTestApp(t, testConfig(t, publicURL, tokenKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,10 +83,10 @@ func TestBindingFlowIsIdempotentAndProtectsOwnership(t *testing.T) {
 		t.Fatalf("first poll = %#v", first)
 	}
 
-	sessionCookie, csrf := loginAdmin(t, server.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, application, "user@qq.com", "relay-password"))
 	confirmBody := requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Office Mac",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusOK)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": application.config.PublicURL.String()}, http.StatusOK)
 	if confirmBody["status"] != "confirmed" || !strings.Contains(confirmBody["node_url"].(string), "/n/n") {
 		t.Fatalf("confirm = %#v", confirmBody)
 	}
@@ -78,10 +107,10 @@ func TestBindingFlowIsIdempotentAndProtectsOwnership(t *testing.T) {
 	}
 }
 
-func TestAdminAuthAndCSRFAreRequired(t *testing.T) {
+func TestUserSessionAndSameOriginAreRequired(t *testing.T) {
 	publicURL, _ := url.Parse("http://relay.example.com")
 	var tokenKey [32]byte
-	application, err := New(testConfig(t, publicURL, tokenKey))
+	application, err := newTestApp(t, testConfig(t, publicURL, tokenKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,11 +118,14 @@ func TestAdminAuthAndCSRFAreRequired(t *testing.T) {
 	server := httptest.NewServer(application.Handler())
 	defer server.Close()
 
-	badLogin := requestJSON(t, server.URL+"/api/cloud/v1/auth/login", http.MethodPost, map[string]string{
-		"username": "admin", "password": "wrong",
-	}, nil, http.StatusUnauthorized)
-	if badLogin["error"] != "auth_required" {
-		t.Fatalf("bad login = %#v", badLogin)
+	legacyRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/cloud/v1/auth/login", strings.NewReader(`{"username":"admin","password":"secret"}`))
+	legacyResponse, err := http.DefaultClient.Do(legacyRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = legacyResponse.Body.Close()
+	if legacyResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("legacy login status = %d", legacyResponse.StatusCode)
 	}
 
 	code := "pc_" + base64.RawURLEncoding.EncodeToString([]byte("binding-code-abcdef"))
@@ -101,12 +133,12 @@ func TestAdminAuthAndCSRFAreRequired(t *testing.T) {
 	requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Node",
 	}, nil, http.StatusUnauthorized)
-	sessionCookie, _ := loginAdmin(t, server.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, application, "user@qq.com", "relay-password"))
 	denied := requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Node",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": "bad"}, http.StatusForbidden)
-	if denied["error"] != "access_denied" {
-		t.Fatalf("CSRF response = %#v", denied)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": "https://attacker.example"}, http.StatusForbidden)
+	if denied["error"] != "forbidden" {
+		t.Fatalf("Origin response = %#v", denied)
 	}
 	if got := pollBind(t, server.URL, code, "device-1"); got["status"] != "pending" {
 		t.Fatalf("challenge changed after denied confirm: %#v", got)
@@ -120,24 +152,24 @@ func TestBindingSurvivesApplicationRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	cfg := testConfig(t, publicURL, tokenKey)
 	cfg.DataDir = dataDir
-	firstApp, err := New(cfg)
+	firstApp, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstServer := httptest.NewServer(firstApp.Handler())
 	code := "pc_" + base64.RawURLEncoding.EncodeToString([]byte("restart-code-123456"))
 	_ = pollBind(t, firstServer.URL, code, "device-1")
-	sessionCookie, csrf := loginAdmin(t, firstServer.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, firstApp, "user@qq.com", "relay-password"))
 	_ = requestJSON(t, firstServer.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Restart Node",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusOK)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": firstApp.config.PublicURL.String()}, http.StatusOK)
 	before := pollBind(t, firstServer.URL, code, "device-1")
 	firstServer.Close()
 	if err := firstApp.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	secondApp, err := New(cfg)
+	secondApp, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,14 +189,14 @@ func TestBindingWaitingRejectAndExpiryStates(t *testing.T) {
 	var tokenKey [32]byte
 	cfg := testConfig(t, publicURL, tokenKey)
 	cfg.BindTTL = 200 * time.Millisecond
-	application, err := New(cfg)
+	application, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer application.Close()
 	server := httptest.NewServer(application.Handler())
 	defer server.Close()
-	sessionCookie, csrf := loginAdmin(t, server.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, application, "user@qq.com", "relay-password"))
 
 	waitingCode := "pc_" + base64.RawURLEncoding.EncodeToString([]byte("waiting-code-123456"))
 	waiting := requestGETJSON(t, server.URL+"/api/bind/status?code="+url.QueryEscape(waitingCode), sessionCookie, http.StatusOK)
@@ -176,7 +208,7 @@ func TestBindingWaitingRejectAndExpiryStates(t *testing.T) {
 	_ = pollBind(t, server.URL, rejectedCode, "device-1")
 	_ = requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": rejectedCode, "action": "reject",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusOK)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": application.config.PublicURL.String()}, http.StatusOK)
 	if rejected := pollBind(t, server.URL, rejectedCode, "device-1"); rejected["status"] != "revoked" {
 		t.Fatalf("rejected poll = %#v", rejected)
 	}
@@ -189,7 +221,7 @@ func TestBindingWaitingRejectAndExpiryStates(t *testing.T) {
 	}
 	expiredConfirm := requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": expiredCode, "action": "confirm", "node_name": "Late Node",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusConflict)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": application.config.PublicURL.String()}, http.StatusConflict)
 	if expiredConfirm["error"] != "bind_expired" {
 		t.Fatalf("expired confirm = %#v", expiredConfirm)
 	}
@@ -204,29 +236,29 @@ func TestNewFailsWhenSQLitePathIsUnavailable(t *testing.T) {
 	}
 	cfg := testConfig(t, publicURL, tokenKey)
 	cfg.DataDir = file
-	if application, err := New(cfg); err == nil {
+	if application, err := newTestApp(t, cfg); err == nil {
 		_ = application.Close()
 		t.Fatal("New() succeeded with an unusable data directory")
 	}
 }
 
-func TestSQLiteDoesNotStorePlainDeviceTokenOrAdminPassword(t *testing.T) {
+func TestSQLiteDoesNotStorePlainDeviceTokenOrRelayPassword(t *testing.T) {
 	publicURL, _ := url.Parse("http://relay.example.com")
 	var tokenKey [32]byte
 	dataDir := t.TempDir()
 	cfg := testConfig(t, publicURL, tokenKey)
 	cfg.DataDir = dataDir
-	application, err := New(cfg)
+	application, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(application.Handler())
 	code := "pc_" + base64.RawURLEncoding.EncodeToString([]byte("storage-code-123456"))
 	_ = pollBind(t, server.URL, code, "device-1")
-	sessionCookie, csrf := loginAdmin(t, server.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, application, "user@qq.com", "relay-password"))
 	_ = requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Storage Node",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusOK)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": application.config.PublicURL.String()}, http.StatusOK)
 	credentials := pollBind(t, server.URL, code, "device-1")
 	deviceToken := credentials["device_token"].(string)
 	server.Close()
@@ -237,7 +269,7 @@ func TestSQLiteDoesNotStorePlainDeviceTokenOrAdminPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{deviceToken, "secret"} {
+	for _, secret := range []string{deviceToken, "relay-password"} {
 		if bytes.Contains(database, []byte(secret)) {
 			t.Fatalf("database contains plaintext secret %q", secret)
 		}
@@ -262,18 +294,47 @@ func testConfig(t *testing.T, publicURL *url.URL, tokenKey [32]byte) config.Conf
 		t.Fatal(err)
 	}
 	return config.Config{
-		PublicURL:         publicURL,
-		DataDir:           t.TempDir(),
-		AssetsDir:         assetsDir,
-		AdminUsername:     "admin",
-		AdminPassword:     "secret",
-		TokenKey:          tokenKey,
-		BindTTL:           10 * time.Minute,
-		AdminSessionTTL:   12 * time.Hour,
+		PublicURL:      publicURL,
+		DataDir:        t.TempDir(),
+		AssetsDir:      assetsDir,
+		TokenKey:       tokenKey,
+		BindTTL:        10 * time.Minute,
+		BootstrapEmail: "sender@qq.com",
+		SMTP: identity.SMTPConfig{
+			Host: "smtp.qq.com", Port: 465, TLS: true,
+			From: "sender@qq.com", Username: "sender@qq.com", Password: "smtp-secret",
+		},
 		StreamOpenTimeout: 10 * time.Second,
 		HeaderTimeout:     30 * time.Second,
 		MaxWSMessageBytes: 32 << 20,
 	}
+}
+
+func newTestApp(t *testing.T, cfg config.Config) (*App, error) {
+	t.Helper()
+	mail := &testMailSender{}
+	passwords := identity.NewPasswordHasherWithParams(identity.PasswordParams{
+		Memory: 64, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32,
+	})
+	return newApp(cfg, mail, passwords)
+}
+
+func registerTestSession(t *testing.T, application *App, email, password string) string {
+	t.Helper()
+	if _, err := application.identity.RequestRegistrationCode(context.Background(), email, "test-source"); err != nil {
+		t.Fatal(err)
+	}
+	mail := application.mail.(*testMailSender)
+	code := mail.code(t, email, identity.PurposeRegister)
+	_, token, err := application.identity.Register(context.Background(), email, password, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func sessionCookieHeader(token string) string {
+	return userSessionCookie + "=" + token
 }
 
 func pollBind(t *testing.T, baseURL, code, deviceID string) map[string]any {
@@ -296,33 +357,6 @@ func pollBind(t *testing.T, baseURL, code, deviceID string) map[string]any {
 		t.Fatalf("poll status=%d body=%#v", resp.StatusCode, body)
 	}
 	return body
-}
-
-func loginAdmin(t *testing.T, baseURL, username, password string) (string, string) {
-	t.Helper()
-	reqBody, _ := json.Marshal(map[string]string{"username": username, "password": password})
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/cloud/v1/auth/login", bytes.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("login status=%d body=%#v", resp.StatusCode, body)
-	}
-	csrf, _ := body["csrf_token"].(string)
-	if csrf == "" {
-		t.Fatalf("login response = %#v", body)
-	}
-	if len(resp.Cookies()) == 0 {
-		t.Fatal("login did not set session cookie")
-	}
-	return resp.Cookies()[0].String(), csrf
 }
 
 func requestJSON(t *testing.T, endpoint, method string, input any, headers map[string]string, wantStatus int) map[string]any {

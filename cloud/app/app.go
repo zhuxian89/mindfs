@@ -15,6 +15,7 @@ import (
 	"mindfs-cloud/internal/config"
 	"mindfs-cloud/internal/connector"
 	"mindfs-cloud/internal/gateway"
+	"mindfs-cloud/internal/identity"
 	"mindfs-cloud/internal/ops"
 	"mindfs-cloud/internal/store"
 )
@@ -23,7 +24,8 @@ type App struct {
 	config    config.Config
 	store     store.Store
 	binding   binding.BindingService
-	auth      *binding.AdminAuth
+	identity  *identity.Service
+	mail      identity.MailSender
 	registry  *connector.Registry
 	connector *connector.Handler
 	gateway   *gateway.Handler
@@ -37,11 +39,39 @@ type App struct {
 }
 
 func New(cfg config.Config) (*App, error) {
+	return newApp(cfg, nil, nil)
+}
+
+func newApp(cfg config.Config, mail identity.MailSender, passwords *identity.PasswordHasher) (*App, error) {
 	st, err := store.OpenSQLite(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
+	if _, _, err := st.ClaimOwnerlessNodes(context.Background(), cfg.BootstrapEmail, time.Now().UTC()); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	if err := st.DeleteExpired(context.Background(), time.Now().UTC()); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	identityKey, err := identity.LoadOrCreateKey(cfg.DataDir)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	if mail == nil {
+		mail, err = identity.NewSMTPSender(cfg.SMTP)
+		if err != nil {
+			_ = st.Close()
+			return nil, err
+		}
+	}
+	if passwords == nil {
+		passwords = identity.NewPasswordHasher()
+	}
+	identityService, err := identity.NewService(st, passwords, mail, identityKey)
+	if err != nil {
 		_ = st.Close()
 		return nil, err
 	}
@@ -56,7 +86,8 @@ func New(cfg config.Config) (*App, error) {
 		config:    cfg,
 		store:     st,
 		binding:   binding.NewService(st, tokens, cfg.BindTTL, publicWebSocketURL(cfg), cfg.PublicURL.String()),
-		auth:      binding.NewAdminAuth(st, cfg.AdminUsername, string(cfg.AdminPassword), cfg.AdminSessionTTL),
+		identity:  identityService,
+		mail:      mail,
 		registry:  registry,
 		connector: connector.NewHandler(tokens, registry, cfg.StreamOpenTimeout),
 		gateway:   gateway.NewHandler(st, registry, cfg.StreamOpenTimeout, cfg.HeaderTimeout, cfg.PublicURL.Scheme),
@@ -111,13 +142,18 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /{$}", a.handleBrowserRoot)
 	mux.HandleFunc("GET /login", a.handleBrowserLogin)
 	mux.HandleFunc("GET /nodes", a.handleBrowserNodes)
+	mux.HandleFunc("POST /api/auth/register/request-code", a.handleRegistrationCodeRequest)
+	mux.HandleFunc("POST /api/auth/register", a.handleRegistration)
+	mux.HandleFunc("POST /api/auth/login", a.handlePasswordLogin)
+	mux.HandleFunc("POST /api/auth/password/request-code", a.handlePasswordResetCodeRequest)
+	mux.HandleFunc("POST /api/auth/password/reset", a.handlePasswordReset)
+	mux.HandleFunc("POST /api/auth/password/change", a.handlePasswordChange)
 	mux.HandleFunc("GET /api/auth/me", a.handleBrowserAuthStatus)
 	mux.HandleFunc("POST /api/auth/logout", a.handleBrowserLogout)
 	mux.HandleFunc("GET /api/nodes", a.handleRelayNodesList)
 	mux.HandleFunc("PATCH /api/nodes/{id}", a.handleRelayNodeRename)
 	mux.HandleFunc("DELETE /api/nodes/{id}", a.handleRelayNodeDelete)
 	mux.HandleFunc("GET /bind", a.handleBindPage)
-	mux.HandleFunc("POST /api/cloud/v1/auth/login", a.handleAdminLogin)
 	mux.HandleFunc("GET /api/bind/poll", a.handleBindPoll)
 	mux.HandleFunc("GET /api/bind/status", a.handleBindStatus)
 	mux.HandleFunc("POST /api/bind/confirm", a.handleBindConfirm)

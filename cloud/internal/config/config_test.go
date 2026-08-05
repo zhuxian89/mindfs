@@ -11,10 +11,9 @@ import (
 func TestLoadRequiresTokenKey(t *testing.T) {
 	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "http://localhost:8080")
 	t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
-	t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-	t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", "")
 	setAssetsDir(t)
+	setSMTPEnv(t)
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "MINDFS_CLOUD_TOKEN_KEY") {
@@ -31,10 +30,9 @@ func TestLoadRejectsMalformedTokenKeys(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "http://localhost:8080")
 			t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
-			t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-			t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 			t.Setenv("MINDFS_CLOUD_TOKEN_KEY", value)
 			setAssetsDir(t)
+			setSMTPEnv(t)
 			if _, err := Load(); err == nil {
 				t.Fatal("Load() accepted malformed token key")
 			}
@@ -49,10 +47,9 @@ func TestLoadAcceptsValidConfig(t *testing.T) {
 	}
 	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "https://relay.example.com/")
 	t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
-	t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-	t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", base64.RawURLEncoding.EncodeToString(key))
 	assetsDir := setAssetsDir(t)
+	setSMTPEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -67,15 +64,17 @@ func TestLoadAcceptsValidConfig(t *testing.T) {
 	if cfg.AssetsDir != assetsDir {
 		t.Fatalf("AssetsDir = %q want %q", cfg.AssetsDir, assetsDir)
 	}
+	if cfg.BootstrapEmail != "sender@qq.com" || cfg.SMTP.Host != "smtp.qq.com" {
+		t.Fatalf("SMTP config = %#v bootstrap=%q", cfg.SMTP, cfg.BootstrapEmail)
+	}
 }
 
 func TestLoadRejectsPublicURLCredentials(t *testing.T) {
 	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "https://user:password@relay.example.com")
 	t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
-	t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-	t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", base64.RawURLEncoding.EncodeToString(make([]byte, 32)))
 	setAssetsDir(t)
+	setSMTPEnv(t)
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must not contain credentials") {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -84,11 +83,23 @@ func TestLoadRejectsPublicURLCredentials(t *testing.T) {
 func TestLoadRejectsIncompleteAssetsDir(t *testing.T) {
 	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "http://localhost:8080")
 	t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
-	t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-	t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", base64.RawURLEncoding.EncodeToString(make([]byte, 32)))
 	t.Setenv("MINDFS_CLOUD_ASSETS_DIR", t.TempDir())
+	setSMTPEnv(t)
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "missing index.html") {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidQQSMTP(t *testing.T) {
+	key := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "http://localhost:8080")
+	t.Setenv("MINDFS_CLOUD_DATA_DIR", t.TempDir())
+	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", key)
+	setAssetsDir(t)
+	setSMTPEnv(t)
+	t.Setenv("MINDFS_CLOUD_SMTP_HOST", "smtp.example.com")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "QQ SMTP") {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
@@ -127,4 +138,14 @@ func setAssetsDir(t *testing.T) string {
 	}
 	t.Setenv("MINDFS_CLOUD_ASSETS_DIR", dir)
 	return dir
+}
+
+func setSMTPEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("MINDFS_CLOUD_SMTP_HOST", "smtp.qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_PORT", "465")
+	t.Setenv("MINDFS_CLOUD_SMTP_TLS", "true")
+	t.Setenv("MINDFS_CLOUD_SMTP_FROM", "sender@qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_USERNAME", "sender@qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_PASSWORD", "smtp-secret")
 }

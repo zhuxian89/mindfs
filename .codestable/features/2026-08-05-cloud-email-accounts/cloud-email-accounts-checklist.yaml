@@ -1,0 +1,128 @@
+feature: 2026-08-05-cloud-email-accounts
+created: 2026-08-05
+
+steps:
+  - action: "Store 微重构：把现有 SQLite repository 按 binding、nodes、sessions 纯移动拆分，不改变接口、SQL 或行为"
+    exit_signal: "store/app/compat 现有测试通过，编译绿灯，对外 Store 签名零变化"
+    status: done
+
+  - action: "账号名词层：加入 User、Argon2id 密码哈希、purpose-scoped 验证码、UserSession、Identity Key、QQ SMTP 配置与 MailSender 契约"
+    exit_signal: "hash/verify、Identity Key 首次生成与重启复用、SMTP 配置校验和 Secret 清洗测试通过"
+    status: done
+
+  - action: "注册与密码生命周期：实现注册发码/注册、邮箱密码登录、忘记/重置/修改密码、验证码和登录持久化限流"
+    exit_signal: "正常、边界、重放、爆破、并发、枚举防护、密码变更和 Session 撤销测试通过"
+    status: done
+
+  - action: "浏览器认证接入：实现登录/注册/忘记密码页面及 me/logout/safe-next，移除公网 bootstrap 密码认证"
+    exit_signal: "用户只在注册/重置时接收验证码，注册后可重复用邮箱密码登录，页面无 OAuth/验证码登录/QQ 邮箱密码字段"
+    status: done
+
+  - action: "Node owner 与迁移：迁移 V0 节点给 pending bootstrap User，注册认领，绑定写 owner，节点管理按 owner 过滤"
+    exit_signal: "双用户隔离、越权 404、V0 节点认领、删除撤销和 Connector/Gateway 回归测试通过"
+    status: done
+
+  - action: "部署与全量验证：Compose 从 VPS Git ignored .env 注入 QQ SMTP，补齐迁移、配置、fake SMTP、全量测试和安全 review"
+    exit_signal: "go test ./... 与 SQLite 升级演练全绿，Git/SQLite/日志/HTTP 无真实 SMTP 授权码或明文密码"
+    status: done
+
+checks:
+  - item: "User 以唯一规范化 @qq.com 邮箱为登录账号，不存在注册用户名"
+    source: 名词契约
+    status: pending
+  - item: "User 密码只保存 Argon2id PHC hash，pending bootstrap User 允许空 hash"
+    source: 名词契约
+    status: pending
+  - item: "注册验证码与重置验证码按 purpose 隔离，保存 keyed hash 而非明文"
+    source: 名词契约
+    status: pending
+  - item: "POST /api/auth/register/request-code 返回 resend_after_seconds，并在非 QQ 邮箱时发信前拒绝"
+    source: 名词契约
+    status: pending
+  - item: "POST /api/auth/register 使用 email/password/code 激活账号并建立 Session"
+    source: 名词契约
+    status: pending
+  - item: "POST /api/auth/login 只接受 email/password，错误统一 invalid_credentials"
+    source: 名词契约
+    status: pending
+  - item: "password request-code/reset/change 覆盖忘记密码和登录后修改密码"
+    source: 名词契约
+    status: pending
+  - item: "Node 管理使用 owner-scoped Store 契约，Gateway 全局 GetNode 保持不变"
+    source: 名词契约
+    status: pending
+  - item: "注册、密码登录、密码恢复、Session 和 Node owner 主流程按 design 流程图连接"
+    source: 编排骨架
+    status: pending
+  - item: "密码 8-128 字符、Argon2id、登录枚举防护和持久化限流约束落地"
+    source: 流程级约束
+    status: pending
+  - item: "验证码 6 位、10 分钟、60 秒重发、5 次尝试、单次并发消费约束落地"
+    source: 流程级约束
+    status: pending
+  - item: "Session 为至少 256 bit 随机 Token、12 小时 TTL 和安全 Cookie"
+    source: 流程级约束
+    status: pending
+  - item: "SMTP 只使用 smtp.qq.com:465 implicit TLS 且不降级明文"
+    source: 流程级约束
+    status: pending
+  - item: "Auth 路由与登录页面挂载完整"
+    source: 挂载点
+    status: pending
+  - item: "VPS .env、SMTP 配置和数据目录 Identity Key 挂载完整"
+    source: 挂载点
+    status: pending
+  - item: "SQLite users/codes/sessions/rate-limit/owner schema 挂载完整"
+    source: 挂载点
+    status: pending
+  - item: "Binding current User 与官方/V0 请求体兼容挂载完整"
+    source: 挂载点
+    status: pending
+  - item: "Nodes API owner 过滤挂载完整"
+    source: 挂载点
+    status: pending
+  - item: "不实现验证码日常登录、QQ 邮箱密码采集、OAuth/OIDC、tenant/RBAC、共享、邀请码或用户名"
+    source: 范围守护
+    status: pending
+  - item: "不修改 Gateway/Connector 数据面认证语义"
+    source: 范围守护
+    status: pending
+  - item: "不修改上游只读路径和暂停的 local-service draft"
+    source: 范围守护
+    status: pending
+  - item: "合法 QQ 邮箱可收注册码，非 QQ 邮箱发信前拒绝"
+    source: 验收场景
+    status: pending
+  - item: "注册后可反复使用邮箱和 Relay 密码登录，无需验证码"
+    source: 验收场景
+    status: pending
+  - item: "密码边界、active 重复注册和 pending bootstrap 认领行为正确"
+    source: 验收场景
+    status: pending
+  - item: "未注册/pending/disabled/错误密码登录统一失败且无账号枚举"
+    source: 验收场景
+    status: pending
+  - item: "注册与重置验证码不可互用，过期/错误/消费/并发重放行为正确"
+    source: 验收场景
+    status: pending
+  - item: "忘记和修改密码后旧密码/旧 Session 按契约失效"
+    source: 验收场景
+    status: pending
+  - item: "me/logout 与旧 AdminSession 失效行为正确"
+    source: 验收场景
+    status: pending
+  - item: "登录页包含登录/注册/忘记密码且不含范围外入口"
+    source: 验收场景
+    status: pending
+  - item: "双用户节点隔离、越权 404 和 owner 删除撤销行为正确"
+    source: 验收场景
+    status: pending
+  - item: "V0 数据库升级和 bootstrap QQ 邮箱注册认领不丢节点"
+    source: 验收场景
+    status: pending
+  - item: "Gateway/Connector/E2EE/assets/backup/health/metrics 无回归"
+    source: 验收场景
+    status: pending
+  - item: "真实 SMTP 授权码不进入 Git、SQLite、日志或 HTTP 响应"
+    source: 验收场景
+    status: pending

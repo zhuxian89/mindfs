@@ -9,8 +9,11 @@ import (
 	"os"
 	stdpath "path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"mindfs-cloud/internal/identity"
 
 	"golang.org/x/net/html"
 )
@@ -18,7 +21,7 @@ import (
 const (
 	defaultAddr              = "127.0.0.1:8080"
 	defaultBindTTL           = 10 * time.Minute
-	defaultAdminSessionTTL   = 12 * time.Hour
+	defaultSMTPTimeout       = 10 * time.Second
 	defaultStreamOpenTimeout = 10 * time.Second
 	defaultHeaderTimeout     = 30 * time.Second
 	defaultMaxWSMessageBytes = int64(32 << 20)
@@ -29,17 +32,14 @@ type Config struct {
 	PublicURL         *url.URL
 	DataDir           string
 	AssetsDir         string
-	AdminUsername     string
-	AdminPassword     Secret
 	TokenKey          [32]byte
 	BindTTL           time.Duration
-	AdminSessionTTL   time.Duration
+	BootstrapEmail    string
+	SMTP              identity.SMTPConfig
 	StreamOpenTimeout time.Duration
 	HeaderTimeout     time.Duration
 	MaxWSMessageBytes int64
 }
-
-type Secret string
 
 func Load() (Config, error) {
 	publicURL, err := parsePublicURL(os.Getenv("MINDFS_CLOUD_PUBLIC_URL"))
@@ -59,13 +59,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	username := strings.TrimSpace(os.Getenv("MINDFS_CLOUD_ADMIN_USERNAME"))
-	if username == "" {
-		return Config{}, errors.New("MINDFS_CLOUD_ADMIN_USERNAME is required")
-	}
-	password := Secret(os.Getenv("MINDFS_CLOUD_ADMIN_PASSWORD"))
-	if password == "" {
-		return Config{}, errors.New("MINDFS_CLOUD_ADMIN_PASSWORD is required")
+	smtpConfig, bootstrapEmail, err := parseSMTPConfig()
+	if err != nil {
+		return Config{}, err
 	}
 
 	return Config{
@@ -73,15 +69,47 @@ func Load() (Config, error) {
 		PublicURL:         publicURL,
 		DataDir:           dataDir,
 		AssetsDir:         assetsDir,
-		AdminUsername:     username,
-		AdminPassword:     password,
 		TokenKey:          tokenKey,
 		BindTTL:           defaultBindTTL,
-		AdminSessionTTL:   defaultAdminSessionTTL,
+		BootstrapEmail:    bootstrapEmail,
+		SMTP:              smtpConfig,
 		StreamOpenTimeout: defaultStreamOpenTimeout,
 		HeaderTimeout:     defaultHeaderTimeout,
 		MaxWSMessageBytes: defaultMaxWSMessageBytes,
 	}, nil
+}
+
+func parseSMTPConfig() (identity.SMTPConfig, string, error) {
+	portValue := strings.TrimSpace(os.Getenv("MINDFS_CLOUD_SMTP_PORT"))
+	port, err := strconv.Atoi(portValue)
+	if err != nil {
+		return identity.SMTPConfig{}, "", errors.New("MINDFS_CLOUD_SMTP_PORT must be 465")
+	}
+	tlsEnabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("MINDFS_CLOUD_SMTP_TLS")))
+	if err != nil {
+		return identity.SMTPConfig{}, "", errors.New("MINDFS_CLOUD_SMTP_TLS must be true")
+	}
+	cfg := identity.SMTPConfig{
+		Host:     strings.TrimSpace(os.Getenv("MINDFS_CLOUD_SMTP_HOST")),
+		Port:     port,
+		TLS:      tlsEnabled,
+		From:     strings.TrimSpace(os.Getenv("MINDFS_CLOUD_SMTP_FROM")),
+		Username: strings.TrimSpace(os.Getenv("MINDFS_CLOUD_SMTP_USERNAME")),
+		Password: identity.Secret(os.Getenv("MINDFS_CLOUD_SMTP_PASSWORD")),
+		Timeout:  defaultSMTPTimeout,
+	}
+	if _, err := identity.NewSMTPSender(cfg); err != nil {
+		return identity.SMTPConfig{}, "", fmt.Errorf("invalid QQ SMTP configuration: %w", err)
+	}
+	bootstrapEmail := strings.TrimSpace(os.Getenv("MINDFS_CLOUD_BOOTSTRAP_EMAIL"))
+	if bootstrapEmail == "" {
+		bootstrapEmail = cfg.Username
+	}
+	bootstrapEmail, err = identity.NormalizeQQEmail(bootstrapEmail)
+	if err != nil {
+		return identity.SMTPConfig{}, "", errors.New("MINDFS_CLOUD_BOOTSTRAP_EMAIL must be an @qq.com address")
+	}
+	return cfg, bootstrapEmail, nil
 }
 
 func resolveAssetsDir(value string) (string, error) {

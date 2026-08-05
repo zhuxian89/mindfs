@@ -44,7 +44,7 @@ type BindConfirmation struct {
 type BindingService interface {
 	Poll(context.Context, string, string) (BindPollResponse, error)
 	Status(context.Context, string) (BindPageStatus, error)
-	Confirm(context.Context, string, string) (BindConfirmation, error)
+	Confirm(context.Context, string, string, string) (BindConfirmation, error)
 	Revoke(context.Context, string) error
 }
 
@@ -132,7 +132,7 @@ func (s *Service) Status(ctx context.Context, code string) (BindPageStatus, erro
 
 var _ BindingService = (*Service)(nil)
 
-func (s *Service) Confirm(ctx context.Context, code, nodeName string) (BindConfirmation, error) {
+func (s *Service) Confirm(ctx context.Context, ownerUserID, code, nodeName string) (BindConfirmation, error) {
 	codeHash, err := hashBindCode(code)
 	if err != nil {
 		return BindConfirmation{}, ErrInvalidCode
@@ -157,12 +157,13 @@ func (s *Service) Confirm(ctx context.Context, code, nodeName string) (BindConfi
 		return BindConfirmation{}, err
 	}
 	node := store.Node{
-		ID:         nodeID,
-		DeviceID:   challenge.DeviceID,
-		Name:       name,
-		Status:     "active",
-		AccessMode: "node_auth",
-		CreatedAt:  now,
+		ID:          nodeID,
+		DeviceID:    challenge.DeviceID,
+		OwnerUserID: ownerUserID,
+		Name:        name,
+		Status:      "active",
+		AccessMode:  "node_auth",
+		CreatedAt:   now,
 	}
 	derivationChallenge := challenge
 	derivationChallenge.NodeID = node.ID

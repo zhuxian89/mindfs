@@ -17,11 +17,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mindfs-cloud/internal/identity"
+	"mindfs-cloud/internal/store"
 )
 
 const (
-	compatAdminUsername = "admin"
-	compatAdminPassword = "compat-admin-password"
+	compatEmail    = "compat@qq.com"
+	compatPassword = "compat-relay-password"
 )
 
 type bindObservation struct {
@@ -89,6 +92,7 @@ type compatibilityRun struct {
 	bind       bindObservation
 	nodeID     string
 	httpClient *http.Client
+	seeded     bool
 }
 
 func newCompatibilityRun(ctx context.Context, runDir string) (*compatibilityRun, error) {
@@ -164,17 +168,28 @@ func (r *compatibilityRun) build() error {
 }
 
 func (r *compatibilityRun) startCloud() error {
+	if !r.seeded {
+		if err := r.seedIdentity(); err != nil {
+			return err
+		}
+		r.seeded = true
+	}
 	cloud, err := startProcess(r.ctx, processSpec{
 		name:   "test-cloud",
 		binary: r.cloudBin,
 		env: isolatedEnv(map[string]string{
-			"MINDFS_CLOUD_ADDR":           r.cloudAddr,
-			"MINDFS_CLOUD_PUBLIC_URL":     r.cloudURL,
-			"MINDFS_CLOUD_DATA_DIR":       r.cloudData,
-			"MINDFS_CLOUD_ASSETS_DIR":     r.staticDir,
-			"MINDFS_CLOUD_ADMIN_USERNAME": compatAdminUsername,
-			"MINDFS_CLOUD_ADMIN_PASSWORD": compatAdminPassword,
-			"MINDFS_CLOUD_TOKEN_KEY":      r.tokenKey,
+			"MINDFS_CLOUD_ADDR":            r.cloudAddr,
+			"MINDFS_CLOUD_PUBLIC_URL":      r.cloudURL,
+			"MINDFS_CLOUD_DATA_DIR":        r.cloudData,
+			"MINDFS_CLOUD_ASSETS_DIR":      r.staticDir,
+			"MINDFS_CLOUD_TOKEN_KEY":       r.tokenKey,
+			"MINDFS_CLOUD_SMTP_HOST":       "smtp.qq.com",
+			"MINDFS_CLOUD_SMTP_PORT":       "465",
+			"MINDFS_CLOUD_SMTP_TLS":        "true",
+			"MINDFS_CLOUD_SMTP_FROM":       compatEmail,
+			"MINDFS_CLOUD_SMTP_USERNAME":   compatEmail,
+			"MINDFS_CLOUD_SMTP_PASSWORD":   "compat-smtp-secret",
+			"MINDFS_CLOUD_BOOTSTRAP_EMAIL": compatEmail,
 		}),
 	})
 	if err != nil {
@@ -241,8 +256,7 @@ func (r *compatibilityRun) startNode() error {
 }
 
 func (r *compatibilityRun) bindNode() error {
-	csrf, err := r.adminLogin()
-	if err != nil {
+	if err := r.login(); err != nil {
 		return err
 	}
 	if err := r.waitForPendingBinding(); err != nil {
@@ -257,7 +271,7 @@ func (r *compatibilityRun) bindNode() error {
 		"action":    "confirm",
 		"node_name": "Compatibility Node",
 	}
-	if err := r.doJSON(http.MethodPost, r.cloudURL+"/api/bind/confirm", request, map[string]string{"X-CSRF-Token": csrf}, &confirmed); err != nil {
+	if err := r.doJSON(http.MethodPost, r.cloudURL+"/api/bind/confirm", request, map[string]string{"Origin": r.cloudURL}, &confirmed); err != nil {
 		return err
 	}
 	if confirmed.Status != "confirmed" || strings.TrimSpace(confirmed.NodeID) == "" {
@@ -267,21 +281,47 @@ func (r *compatibilityRun) bindNode() error {
 	return nil
 }
 
-func (r *compatibilityRun) adminLogin() (string, error) {
-	var response struct {
-		CSRFToken string `json:"csrf_token"`
-	}
-	err := r.doJSON(http.MethodPost, r.cloudURL+"/api/cloud/v1/auth/login", map[string]string{
-		"username": compatAdminUsername,
-		"password": compatAdminPassword,
-	}, nil, &response)
+func (r *compatibilityRun) login() error {
+	return r.doJSON(http.MethodPost, r.cloudURL+"/api/auth/login", map[string]string{
+		"email": compatEmail, "password": compatPassword,
+	}, map[string]string{"Origin": r.cloudURL}, nil)
+}
+
+type compatMailSender struct {
+	code string
+}
+
+func (s *compatMailSender) SendVerificationCode(_ context.Context, _ string, _ identity.VerificationPurpose, code string) error {
+	s.code = code
+	return nil
+}
+
+func (r *compatibilityRun) seedIdentity() error {
+	database, err := store.OpenSQLite(r.cloudData)
 	if err != nil {
-		return "", err
+		return err
 	}
-	if strings.TrimSpace(response.CSRFToken) == "" {
-		return "", errors.New("admin login returned no CSRF token")
+	defer database.Close()
+	key, err := identity.LoadOrCreateKey(r.cloudData)
+	if err != nil {
+		return err
 	}
-	return response.CSRFToken, nil
+	mail := &compatMailSender{}
+	passwords := identity.NewPasswordHasherWithParams(identity.PasswordParams{
+		Memory: 64, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32,
+	})
+	service, err := identity.NewService(database, passwords, mail, key)
+	if err != nil {
+		return err
+	}
+	if _, err := service.RequestRegistrationCode(r.ctx, compatEmail, "compat-seed"); err != nil {
+		return err
+	}
+	if mail.code == "" {
+		return errors.New("compat registration produced no verification code")
+	}
+	_, _, err = service.Register(r.ctx, compatEmail, compatPassword, mail.code)
+	return err
 }
 
 func (r *compatibilityRun) waitForPendingBinding() error {

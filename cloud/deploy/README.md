@@ -2,7 +2,21 @@
 
 Build and run from this directory after creating `.env` from `.env.example`.
 Generate `MINDFS_CLOUD_TOKEN_KEY` as an unpadded base64url encoding of 32 random
-bytes, set a public DNS name, and point that name at the host.
+bytes, set a public DNS name, and point that name at the host. Configure the QQ
+SMTP authorization code in `MINDFS_CLOUD_SMTP_PASSWORD`; it is not the QQ
+mailbox password. The Relay accepts registrations only for exact `@qq.com`
+addresses. Registration uses email, a user-defined Relay password, and an
+email code; later logins use email and the Relay password without a code.
+
+Keep `cloud/deploy/.env` only on the server and restrict it to the service
+administrator:
+
+```bash
+chmod 600 .env
+```
+
+`MINDFS_CLOUD_BOOTSTRAP_EMAIL` owns nodes migrated from a V0 database. That QQ
+address must complete normal registration before those nodes become visible.
 
 ```bash
 docker compose build
@@ -68,3 +82,6 @@ GET /healthz   process liveness
 GET /readyz    SQLite and Web asset readiness
 GET /metrics   Prometheus text metrics
 ```
+
+The reverse proxy must preserve the original Host and scheme and pass WebSocket
+upgrade headers for `/ws/connector` and `/n/{node-id}/...` routes.

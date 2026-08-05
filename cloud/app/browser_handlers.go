@@ -40,6 +40,9 @@ func safeRelayRedirect(raw string) string {
 	if target.Path == "/nodes" {
 		return target.RequestURI()
 	}
+	if target.Path == "/bind" {
+		return target.RequestURI()
+	}
 	return safeNodeRedirect(raw)
 }
 

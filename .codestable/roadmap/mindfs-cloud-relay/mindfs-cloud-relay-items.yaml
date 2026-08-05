@@ -36,7 +36,15 @@ items:
     minimal_loop: true
     notes: "V0 修正项；2026-08-04 cloud-v0-completion 探查发现原 V0 缺服务端节点发现闭环，回填为 V0；只复用客户端既有 /login、/nodes、GET/PATCH/DELETE /api/nodes、/api/auth/me、/api/auth/logout 契约，不新增协议或多用户；minimal_loop=true 因无此闭环则单用户 V0 不可用；不实现 Token 主动轮换（留 cloud-node-management）"
 
-  # ── V1：兼容补完（唯一客户端/节点驱动的剩余兼容缺口）──
+  - slug: cloud-email-accounts
+    description: "实现仅 @qq.com 的邮箱验证码注册、邮箱密码登录和找回密码，并按用户隔离节点绑定与管理"
+    depends_on: [relay-core-single-instance, relay-deployment-baseline, cloud-node-discovery]
+    status: in-progress
+    feature: 2026-08-05-cloud-email-accounts
+    minimal_loop: false
+    notes: "V1 自建账号能力；注册使用 QQ 邮箱+自设密码+邮箱验证码，后续使用邮箱+自设密码登录；验证码另用于忘记密码。仅允许 @qq.com；使用 QQ SMTP 465 implicit TLS；现有 V0 节点由 bootstrap QQ 邮箱注册后认领。明确不做验证码日常登录、Google/GitHub/LinuxDo OAuth、OIDC、tenant、RBAC 和节点共享。"
+
+  # ── V1：兼容补完（账号能力推进；本地附加服务继续暂停）──
   - slug: relay-local-service-domains
     description: "实现 device 鉴权的服务路由 API 与 {slug}-{nodeId}-relay.{apex} 公网子域名转发（带 X-MindFS-Relay-Service-Slug 头）"
     depends_on: [relay-core-single-instance, relay-deployment-baseline]
@@ -60,19 +68,11 @@ items:
     status: planned
     feature: null
     minimal_loop: false
-    notes: "【非兼容·运维可选】非客户端驱动；单用户+Cloudflare 后风险低，仅当扩大暴露面时再做（review 已记 logout CSRF 等次要点）"
-
-  - slug: cloud-account-tenancy
-    description: "实现用户、租户、OIDC、本地登录和角色权限后端 API"
-    depends_on: [cloud-node-management, relay-security-audit]
-    status: planned
-    feature: null
-    minimal_loop: false
-    notes: "【非兼容·愿景·建 SaaS 才需要】多用户/租户；自托管单 bootstrap 账号已够用"
+    notes: "【非兼容·运维可选】邮箱认证自身的验证码/Session/owner 隔离安全约束由 cloud-email-accounts 承担；本条只保留更广泛的审计、请求上限、Token 轮换治理和运营级加固"
 
   - slug: cloud-node-sharing
     description: "实现节点共享邀请、ACL、访问模式和共享撤销后端 API"
-    depends_on: [cloud-node-management, cloud-account-tenancy]
+    depends_on: [cloud-node-management, cloud-email-accounts]
     status: planned
     feature: null
     minimal_loop: false
@@ -80,7 +80,7 @@ items:
 
   - slug: relay-postgres-control-plane
     description: "将用户、节点、绑定、服务和审计控制面迁移到 PostgreSQL"
-    depends_on: [relay-deployment-baseline, cloud-account-tenancy]
+    depends_on: [relay-deployment-baseline, cloud-email-accounts]
     status: planned
     feature: null
     minimal_loop: false
@@ -96,7 +96,7 @@ items:
 
   - slug: relay-usage-quotas
     description: "统计节点流量、并发、连接时长并执行租户和节点配额"
-    depends_on: [cloud-account-tenancy, relay-distributed-routing]
+    depends_on: [cloud-email-accounts, relay-distributed-routing]
     status: planned
     feature: null
     minimal_loop: false
@@ -112,7 +112,7 @@ items:
 
   - slug: token-station-account-ledger
     description: "实现 Token Station 账户、余额、额度台账和 API Key 生命周期"
-    depends_on: [cloud-account-tenancy, relay-postgres-control-plane, relay-usage-quotas]
+    depends_on: [cloud-email-accounts, relay-postgres-control-plane, relay-usage-quotas]
     status: planned
     feature: null
     minimal_loop: false
@@ -136,7 +136,7 @@ items:
 
   - slug: hosted-agent-config
     description: "实现 Agent 配置修订、发布、回滚和兼容现有客户端的 /api/agents"
-    depends_on: [cloud-account-tenancy, relay-postgres-control-plane]
+    depends_on: [cloud-email-accounts, relay-postgres-control-plane]
     status: planned
     feature: null
     minimal_loop: false
@@ -144,7 +144,7 @@ items:
 
   - slug: cloud-tips-content
     description: "实现 Tips 内容存储、投放规则和兼容现有客户端的 /api/tips"
-    depends_on: [cloud-account-tenancy, relay-postgres-control-plane]
+    depends_on: [cloud-email-accounts, relay-postgres-control-plane]
     status: planned
     feature: null
     minimal_loop: false
@@ -152,7 +152,7 @@ items:
 
   - slug: release-distribution
     description: "实现 Android/Harmony 版本接口、制品元数据、校验和和下载镜像"
-    depends_on: [relay-deployment-baseline, cloud-account-tenancy, relay-postgres-control-plane]
+    depends_on: [relay-deployment-baseline, cloud-email-accounts, relay-postgres-control-plane]
     status: planned
     feature: null
     minimal_loop: false

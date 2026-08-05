@@ -20,15 +20,35 @@ func TestBackupCreatesVerifiedSnapshotAndDoesNotOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now().UTC()
+	email := "backup@qq.com"
+	codeHash := sha256.Sum256([]byte("verification-code"))
+	if err := database.SaveVerificationCode(context.Background(), store.VerificationCode{
+		Email:             email,
+		Purpose:           "register",
+		Nonce:             []byte("backup-nonce-123"),
+		CodeHash:          codeHash[:],
+		SourceHash:        []byte("source"),
+		ExpiresAt:         now.Add(time.Minute),
+		ResendAvailableAt: now.Add(time.Minute),
+		AttemptsRemaining: 5,
+		CreatedAt:         now,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
 	sessionHash := sha256.Sum256([]byte("session"))
-	csrfHash := sha256.Sum256([]byte("csrf"))
-	if err := database.SaveAdminSession(context.Background(), store.AdminSession{
+	if _, err := database.RegisterUser(context.Background(), store.User{
+		ID:           "usr_backup",
+		Email:        email,
+		PasswordHash: "$argon2id$test",
+		CreatedAt:    now,
+	}, codeHash[:], store.UserSession{
 		SessionHash: sessionHash[:],
-		CSRFHash:    csrfHash[:],
-		ExpiresAt:   time.Now().Add(time.Hour),
-		CreatedAt:   time.Now(),
-		LastSeenAt:  time.Now(),
-	}); err != nil {
+		UserID:      "usr_backup",
+		ExpiresAt:   now.Add(time.Hour),
+		CreatedAt:   now,
+		LastSeenAt:  now,
+	}, now); err != nil {
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "nested", "backup.db")
@@ -51,12 +71,12 @@ func TestBackupCreatesVerifiedSnapshotAndDoesNotOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := backup.QueryRow("SELECT COUNT(*) FROM admin_sessions").Scan(&count); err != nil {
+	if err := backup.QueryRow("SELECT COUNT(*) FROM user_sessions").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	_ = backup.Close()
 	if count != 1 {
-		t.Fatalf("backup admin session count = %d", count)
+		t.Fatalf("backup user session count = %d", count)
 	}
 	before, err := os.ReadFile(destination)
 	if err != nil {

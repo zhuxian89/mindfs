@@ -19,7 +19,9 @@ go test ./compat -run TestUnmodifiedNodeRelayCompatibility -v
 Each run uses temporary Cloud data, Node configuration, static assets, root
 directory, binaries, and loopback ports. The Node process receives invalid
 HTTP proxies for non-loopback traffic and a restricted `PATH`, so the scenario
-does not contact hosted services or start local agent programs.
+does not contact hosted services or start local agent programs. Before starting
+the real Relay process, the harness registers a temporary QQ-only Cloud User
+through the Identity Service and then uses the public email/password login API.
 
 Failures identify the compatibility stage and include only a short redacted
 process-log tail. Pairing secrets, bind codes, device tokens, E2EE keys, proofs,

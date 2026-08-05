@@ -24,7 +24,7 @@ func TestEndToEndBindingConnectorHTTPAndWebSocket(t *testing.T) {
 	publicURL, _ := url.Parse("http://relay.example.com")
 	var tokenKey [32]byte
 	copy(tokenKey[:], []byte("01234567890123456789012345678901"))
-	application, err := New(testConfig(t, publicURL, tokenKey))
+	application, err := newTestApp(t, testConfig(t, publicURL, tokenKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +34,10 @@ func TestEndToEndBindingConnectorHTTPAndWebSocket(t *testing.T) {
 
 	code := "pc_" + base64.RawURLEncoding.EncodeToString([]byte("full-protocol-123456"))
 	_ = pollBind(t, server.URL, code, "device-1")
-	sessionCookie, csrf := loginAdmin(t, server.URL, "admin", "secret")
+	sessionCookie := sessionCookieHeader(registerTestSession(t, application, "user@qq.com", "relay-password"))
 	_ = requestJSON(t, server.URL+"/api/bind/confirm", http.MethodPost, map[string]string{
 		"code": code, "action": "confirm", "node_name": "Protocol Node",
-	}, map[string]string{"Cookie": sessionCookie, "X-CSRF-Token": csrf}, http.StatusOK)
+	}, map[string]string{"Cookie": sessionCookie, "Origin": application.config.PublicURL.String()}, http.StatusOK)
 	credentials := pollBind(t, server.URL, code, "device-1")
 	deviceToken := credentials["device_token"].(string)
 	nodeID := credentials["node_id"].(string)

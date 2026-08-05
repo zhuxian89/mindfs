@@ -24,7 +24,7 @@ MindFS 仓库包含本地节点、Web 前端、CLI 和 Relay 客户端，但不�
 ### 本 roadmap 覆盖
 
 - cloud 独立 Go module、配置、迁移、部署和健康检查。
-- 管理员及后续多用户认证后端。
+- 仅 QQ 邮箱的验证码注册、邮箱密码登录、找回密码、多用户会话和节点归属隔离。
 - 设备绑定、节点注册、凭据签发、轮换和撤销。
 - Connector WebSocket、WebSocket-as-net.Conn 和 yamux Server。
 - /n/{nodeId} HTTP/WebSocket Relay。
@@ -87,7 +87,8 @@ cloud/**
 - 不自行实现银行卡、微信、支付宝等支付网络，只定义支付适配器。
 - 不负责 Android/Harmony 应用签名私钥和应用商店发布。
 - 不复制官方私有账号数据、计费策略和运营后台行为。
-- 客户端/节点不调用的能力一律不做（Token 主动轮换、节点共享、多租户、Token Station 云端版、自定义域名等均为可选愿景，非兼容义务；详见第 5 节「非兼容愿景」）。
+- 客户端/节点不调用的能力一律不做（Token 主动轮换、节点共享、tenant/RBAC、Token Station 云端版、自定义域名等均为可选愿景，非兼容义务；详见第 5 节「非兼容愿景」）。
+- 账号体系只允许 `@qq.com`：注册使用邮箱验证码和用户自设密码，日常登录使用邮箱和该密码，验证码另用于找回密码；不实现 Google、GitHub、LinuxDo OAuth、OIDC 或其他邮箱域名。
 - 注：本地服务子域名（`{slug}-{nodeId}-relay.{apex}`）是节点主动调用 `/api/device/nodes/{id}/services/{slug}` 的兼容缺口，须实现，不在「明确不做」之列。
 
 ## 3. 模块拆分（概设）
@@ -121,8 +122,8 @@ cloud/
 
 ### Identity
 
-- **职责**：管理员、用户、租户、登录会话、OIDC 和 RBAC；不处理节点数据转发。
-- **承载的子 feature**：cloud-account-tenancy、cloud-node-sharing。
+- **职责**：QQ 邮箱准入、注册/重置验证码、密码凭据、用户、登录会话和当前用户身份；不处理 OAuth、tenant、RBAC 或节点数据转发。
+- **承载的子 feature**：cloud-email-accounts、cloud-node-sharing。
 - **触碰的现有代码**：无。
 
 ### Binding 与 Node Registry
@@ -248,28 +249,46 @@ internal_error
 ### 4.2 管理认证
 
 ~~~http
-POST /api/cloud/v1/auth/login
+POST /api/auth/register/request-code
 Content-Type: application/json
 
 {
-  "username": "admin",
-  "password": "..."
+  "email": "421690794@qq.com"
 }
 ~~~
 
 ~~~json
 {
-  "user": {
-    "id": "usr_xxx",
-    "tenant_id": "ten_xxx",
-    "username": "admin",
-    "roles": ["owner"]
-  },
-  "csrf_token": "..."
+  "resend_after_seconds": 60
 }
 ~~~
 
-使用 mindfs_cloud_session HttpOnly、Secure、SameSite=Lax Cookie；所有管理写请求携带 X-CSRF-Token。V0 只提供 bootstrap 管理员，但沿用同一接口。
+~~~http
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "email": "421690794@qq.com",
+  "password": "user-defined-password",
+  "code": "123456"
+}
+~~~
+
+~~~http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "421690794@qq.com",
+  "password": "user-defined-password"
+}
+~~~
+
+注册时验证邮箱验证码并保存用户自设密码的强哈希；日常登录不发送验证码。忘记密码通过 `POST /api/auth/password/request-code` 和 `POST /api/auth/password/reset` 完成，重置成功后撤销旧 Session。只接受规范化后域名严格等于 `qq.com` 的地址；其他域名在发送邮件前返回 `email_not_allowed`。验证码 10 分钟有效、单次使用、按用途隔离，服务端只存 keyed hash，并按邮箱与请求来源限流。key 在 Cloud 数据目录首次启动时自动生成并持久化，不增加人工密钥配置。
+
+登录成功使用 `mindfs_cloud_session` HttpOnly、Secure、SameSite=Lax Cookie。`GET /api/auth/me` 返回当前用户的 `id`、`email` 和 `name`；`POST /api/auth/logout` 同时撤销服务端 Session 并清除 Cookie。官方页面公开的 Google、GitHub、LinuxDo OAuth 路由不实现。
+
+V0 的 bootstrap 用户名/密码登录由本 feature 替换。已有节点在迁移时归属一个待认领 bootstrap QQ 用户；默认使用 SMTP 用户名，允许通过可选 `MINDFS_CLOUD_BOOTSTRAP_EMAIL` 覆盖。该邮箱完成验证码注册并设置自己的 Relay 密码后认领既有节点。
 
 ### 4.3 绑定协议
 
@@ -304,10 +323,11 @@ POST /api/bind/confirm
 
 {
   "code": "pc_xxx",
-  "action": "confirm",
-  "node_name": "Office Mac"
+  "name": "Office Mac"
 }
 ~~~
+
+确认绑定必须有邮箱用户 Session，成功后把节点 `owner_user_id` 设为当前用户。为平滑升级，Cloud 同时接受 V0 的 `action=confirm` + `node_name` 请求体；两种格式进入同一确认编排。
 
 Relay confirmed：
 
@@ -505,14 +525,15 @@ V0 只实现 node_auth 和 disabled。删除节点必须撤销 Token、关闭 Co
 ### 4.9 核心数据结构
 
 ~~~text
-tenants
-- id, slug, name, status, created_at
-
 users
-- id, tenant_id, username, password_hash, status, created_at
+- id, email, password_hash, status, created_at, password_changed_at, last_login_at
+
+email_verification_codes
+- email, purpose, code_hash, expires_at, attempts_remaining
+- resend_available_at, created_at, consumed_at
 
 cloud_sessions
-- id_hash, user_id, csrf_hash, expires_at, last_seen_at
+- id_hash, user_id, expires_at, created_at, last_seen_at
 
 bind_challenges
 - code_hash, purpose, device_id, requested_node_name
@@ -521,7 +542,7 @@ bind_challenges
 - created_at, confirmed_at
 
 nodes
-- id, tenant_id, owner_user_id, device_id
+- id, owner_user_id, device_id
 - name, status, access_mode, created_at, last_seen_at
 
 device_tokens
@@ -535,11 +556,11 @@ node_shares
 - id, node_id, subject_type, subject_id, role, expires_at
 
 audit_events
-- id, tenant_id, actor_type, actor_id, action
+- id, actor_type, actor_id, action
 - resource_type, resource_id, request_id, metadata_json, created_at
 
 usage_counters
-- tenant_id, node_id, period
+- user_id, node_id, period
 - ingress_bytes, egress_bytes, streams, websocket_seconds
 
 station_accounts
@@ -742,9 +763,18 @@ GET /mindfs-assets/{path}
 
 ### V1：兼容补完（客户端/节点驱动）
 
-经逐项核对客户端与节点实际调用的 relay 端点，V0 之后存在一个本地服务兼容特例：节点注册本地服务时调用 cloud 的 `PUT/DELETE /api/device/nodes/{nodeId}/services/{slug}`，客户端为每个服务生成 `{slug}-{nodeId}-relay.{apex}` 子域名 URL；cloud 目前对二者均 404 / 不路由。该契约保留，但用户已明确暂停为 TODO，当前不实现。
+经逐项核对官方 Relay 的公开页面与未修改客户端/节点调用，V0 后有两项可观察兼容能力：邮箱验证码账号与本地附加服务域名。账号能力现在推进；本地服务契约保留，但用户已明确暂停为 TODO。
 
-5. **relay-local-service-domains** — 实现 device 鉴权的服务路由 API（`/api/device/nodes/{id}/services/{slug}`）与 `{slug}-{nodeId}-relay.{apex}` 公网子域名转发。
+5. **cloud-email-accounts** — 实现仅 `@qq.com` 的验证码注册、邮箱密码登录和找回密码，并以用户账号隔离节点绑定、列表、重命名和删除。
+   - 所属模块：Identity、Binding、Management API、Store、Config
+   - 依赖：relay-core-single-instance、relay-deployment-baseline、cloud-node-discovery（均已 done）
+   - 状态：in-progress
+   - 对应 feature：2026-08-05-cloud-email-accounts
+   - 兼容边界：未修改客户端只依赖 `/login`、`/api/auth/me`、logout 和认证后的节点页面；登录页内部采用自建的注册/密码登录流程
+   - 范围：注册验证码、用户自设密码、邮箱密码登录、忘记/修改密码；仅 `@qq.com`；QQ SMTP 465 implicit TLS；现有节点由 bootstrap QQ 邮箱注册后认领；节点管理按 owner 隔离
+   - 明确不做：日常验证码登录、QQ 邮箱密码采集、Google/GitHub/LinuxDo OAuth、OIDC、tenant、RBAC、节点共享、其他邮箱域名
+
+6. **relay-local-service-domains** — 实现 device 鉴权的服务路由 API（`/api/device/nodes/{id}/services/{slug}`）与 `{slug}-{nodeId}-relay.{apex}` 公网子域名转发。
    - 所属模块：Gateway、Connector、Store
    - 依赖：relay-core-single-instance、relay-deployment-baseline（均已 done；不再依赖可选的 relay-security-audit）
    - 状态：planned / TODO（2026-08-05 用户明确暂停；未重新启用前不实现、不部署）
@@ -756,23 +786,23 @@ GET /mindfs-assets/{path}
 
 以下各项**客户端/节点均不调用**，属"想从自托管升级为运营云平台"才需要的愿景，非兼容义务，未列入排期。按触发条件分组（细节见 items.yaml 各项 notes）：
 
-- **建多租户 SaaS 才需要**：cloud-account-tenancy、cloud-node-sharing（客户端零调用）、relay-postgres-control-plane（客户端不可见）、relay-distributed-routing（客户端不可见）、relay-usage-quotas、cloud-operations-observability、cloud-backup-recovery。
+- **扩展运营云平台才需要**：cloud-node-sharing（客户端零调用）、relay-postgres-control-plane（客户端不可见）、relay-distributed-routing（客户端不可见）、relay-usage-quotas、cloud-operations-observability、cloud-backup-recovery。
 - **与节点已实现功能重复（cloud 不必做）**：token-station-account-ledger / model-gateway / billing、hosted-agent-config（`/api/agents`）、cloud-tips-content（`/api/relay/tips`）——客户端均经 `appPath` 走节点。
 - **客户端不打自建云**：release-distribution（移动版本检查硬编码 `relay.a9gent.com`）。
-- **运维可选（非兼容）**：cloud-node-management（Token 主动轮换；客户端零调用，删除即撤销已满足）、relay-security-audit（限流/CSRF/审计加固；单用户 + Cloudflare 后风险低）。
+- **运维可选（非兼容）**：cloud-node-management（Token 主动轮换；客户端零调用，删除即撤销已满足）、relay-security-audit（邮箱认证核心防护由 cloud-email-accounts 自带，本条只保留更广的运营安全治理）。
 - **持续兼容维护纪律（已部分承载）**：cloud-api-lifecycle（兼容矩阵/回归；V0 compatibility-suite 与多版本资源已是其实例，按上游变更增量加强）。
 
 **已移除**：~~relay-custom-domains~~——客户端零调用、用户无需求（单 relay 域名由 Cloudflare/Caddy 在部署侧解决），不属于 cloud 兼容义务，从 roadmap 删除。
 
 **最小闭环**：relay-core-single-instance 完成后，未修改的 MindFS 客户端能够通过 MINDFS_RELAY_BASE_URL 完成绑定、建立 Connector，并从 cloud 的 /n/{nodeId} 入口正常使用 HTTP 和 WebSocket。
 
-**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束，单用户可在任意浏览器凭 bootstrap 凭据发现并打开已绑定节点。本地服务兼容特例 relay-local-service-domains 已保留为暂停的 TODO（见 V1）。
+**V0 状态**：核心实现、真实客户端兼容套件、部署基线和 V0 修正项 cloud-node-discovery 均已完成；V0 核心兼容后端闭环结束。V1 当前推进 cloud-email-accounts；本地服务兼容特例 relay-local-service-domains 继续作为暂停的 TODO。
 
 ## 6. 排期思路
 
 V0 采用跨模块垂直切片，因为只做绑定或 Connector 都不能产生可验证价值。第一条必须直接跑通未修改客户端。第二条把兼容性固化成测试，第三条才形成可重复部署版本。
 
-V1 补齐完整自托管 Relay 所需的管理、安全和本地服务能力。V2 再引入账号、PostgreSQL、Redis 和多实例。V3 的 Token Station 与内容分发不阻塞 Relay 核心价值。
+V1 先补官方公开页面可观察的邮箱验证码账号与节点 owner 隔离；本地附加服务保持 TODO。PostgreSQL、Redis、多实例、共享和配额仍是按需愿景，不阻塞兼容 Relay 核心价值。
 
 所有后续 feature 都必须遵守现有代码只读边界；任何需要修改客户端才能完成的设计必须退回 roadmap review。
 
@@ -787,5 +817,6 @@ V1 补齐完整自托管 Relay 所需的管理、安全和本地服务能力。V
 
 ## 8. 变更日志
 
+- 2026-08-05：根据用户最终确认，将 V1 `cloud-email-accounts` 收敛为仅 `@qq.com` 的验证码注册、邮箱密码登录、密码找回/修改、Session 与节点 owner 隔离；验证码不用于日常登录，明确排除邮箱密码采集、OAuth/OIDC/tenant/RBAC；现有节点由 bootstrap QQ 邮箱注册后认领。
 - 2026-08-03：关联 mindfs-compatible-cloud-backend requirement；补充确定性 HMAC device token 派生、只存 hash、confirmed 幂等重放和独立 MINDFS_CLOUD_TOKEN_KEY 契约。
 - 2026-08-03：部署契约补充 MINDFS_CLOUD_ASSETS_DIR 与 /mindfs-assets/{path}，确保未修改 Node 的 release 静态路径重写在自建 Cloud 中可实际加载。

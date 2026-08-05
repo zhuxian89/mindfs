@@ -19,7 +19,7 @@ func TestReadyAndAssetHandlers(t *testing.T) {
 	if err := os.WriteFile(assetPath, []byte("asset-ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	application, err := New(cfg)
+	application, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAssetHandlerRejectsUnsafePaths(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	application, err := New(cfg)
+	application, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestAssetHandlerServesMultipleReleaseHashes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	application, err := New(cfg)
+	application, err := newTestApp(t, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

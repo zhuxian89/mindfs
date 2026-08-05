@@ -83,9 +83,13 @@ func setCommandConfig(t *testing.T) string {
 	t.Setenv("MINDFS_CLOUD_PUBLIC_URL", "http://127.0.0.1:8080")
 	t.Setenv("MINDFS_CLOUD_DATA_DIR", dataDir)
 	t.Setenv("MINDFS_CLOUD_ASSETS_DIR", assetsDir)
-	t.Setenv("MINDFS_CLOUD_ADMIN_USERNAME", "admin")
-	t.Setenv("MINDFS_CLOUD_ADMIN_PASSWORD", "secret")
 	t.Setenv("MINDFS_CLOUD_TOKEN_KEY", base64.RawURLEncoding.EncodeToString(make([]byte, 32)))
+	t.Setenv("MINDFS_CLOUD_SMTP_HOST", "smtp.qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_PORT", "465")
+	t.Setenv("MINDFS_CLOUD_SMTP_TLS", "true")
+	t.Setenv("MINDFS_CLOUD_SMTP_FROM", "sender@qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_USERNAME", "sender@qq.com")
+	t.Setenv("MINDFS_CLOUD_SMTP_PASSWORD", "smtp-secret")
 	return dataDir
 }
 

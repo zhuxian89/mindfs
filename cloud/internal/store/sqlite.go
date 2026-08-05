@@ -1,10 +1,11 @@
 package store
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -39,7 +40,108 @@ func OpenSQLite(dataDir string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
 	}
+	if err := s.migrateColumns(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate sqlite columns: %w", err)
+	}
 	return s, nil
+}
+
+func (s *SQLiteStore) migrateColumns(ctx context.Context) error {
+	for _, migration := range []struct {
+		table  string
+		column string
+		query  string
+	}{
+		{table: "nodes", column: "owner_user_id", query: "ALTER TABLE nodes ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''"},
+		{table: "bind_challenges", column: "claimed_by_user_id", query: "ALTER TABLE bind_challenges ADD COLUMN claimed_by_user_id TEXT NOT NULL DEFAULT ''"},
+		{table: "email_verification_codes", column: "nonce", query: "ALTER TABLE email_verification_codes ADD COLUMN nonce BLOB NOT NULL DEFAULT X''"},
+	} {
+		exists, err := s.columnExists(ctx, migration.table, migration.column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := s.db.ExecContext(ctx, migration.query); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := s.db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_nodes_owner_user_id ON nodes(owner_user_id)")
+	return err
+}
+
+func (s *SQLiteStore) columnExists(ctx context.Context, table, column string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func (s *SQLiteStore) ClaimOwnerlessNodes(ctx context.Context, email string, now time.Time) (User, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, false, err
+	}
+	defer tx.Rollback()
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM nodes WHERE owner_user_id = ''").Scan(&count); err != nil {
+		return User{}, false, err
+	}
+	if count == 0 {
+		return User{}, false, nil
+	}
+	user, err := getUserByEmail(ctx, tx, email)
+	if errors.Is(err, ErrNotFound) {
+		sum := sha256.Sum256([]byte(email))
+		user = User{
+			ID:        "usr_bootstrap_" + hex.EncodeToString(sum[:8]),
+			Email:     email,
+			Status:    "pending_verification",
+			CreatedAt: now,
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			"INSERT INTO users (id, email, password_hash, status, created_at) VALUES (?, ?, '', ?, ?)",
+			user.ID,
+			user.Email,
+			user.Status,
+			toMillis(user.CreatedAt),
+		); err != nil {
+			return User{}, false, err
+		}
+	} else if err != nil {
+		return User{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE nodes SET owner_user_id = ? WHERE owner_user_id = ''", user.ID); err != nil {
+		return User{}, false, err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"UPDATE bind_challenges SET claimed_by_user_id = ? WHERE claimed_by_user_id = '' AND node_id IN (SELECT id FROM nodes WHERE owner_user_id = ?)",
+		user.ID,
+		user.ID,
+	); err != nil {
+		return User{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return User{}, false, err
+	}
+	return user, true, nil
 }
 
 func (s *SQLiteStore) Close() error {
@@ -50,437 +152,8 @@ func (s *SQLiteStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-func (s *SQLiteStore) ObserveChallenge(
-	ctx context.Context,
-	codeHash []byte,
-	deviceID string,
-	now time.Time,
-	expiresAt time.Time,
-) (BindChallenge, bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return BindChallenge{}, false, err
-	}
-	defer tx.Rollback()
-
-	challenge, err := getChallenge(ctx, tx, codeHash)
-	if errors.Is(err, ErrNotFound) {
-		challenge = BindChallenge{
-			CodeHash:               bytes.Clone(codeHash),
-			DeviceID:               deviceID,
-			Status:                 BindPending,
-			TokenDerivationVersion: 1,
-			ExpiresAt:              expiresAt,
-			CreatedAt:              now,
-		}
-		const insert = "INSERT INTO bind_challenges " +
-			"(code_hash, device_id, status, token_derivation_version, expires_at, created_at) " +
-			"VALUES (?, ?, ?, ?, ?, ?)"
-		_, err = tx.ExecContext(
-			ctx,
-			insert,
-			challenge.CodeHash,
-			challenge.DeviceID,
-			challenge.Status,
-			challenge.TokenDerivationVersion,
-			toMillis(challenge.ExpiresAt),
-			toMillis(challenge.CreatedAt),
-		)
-		if err != nil {
-			return BindChallenge{}, false, err
-		}
-		if err := tx.Commit(); err != nil {
-			return BindChallenge{}, false, err
-		}
-		return challenge, false, nil
-	}
-	if err != nil {
-		return BindChallenge{}, false, err
-	}
-	if challenge.DeviceID != deviceID {
-		return challenge, true, nil
-	}
-	if now.After(challenge.ExpiresAt) && challenge.Status != BindClaimed && challenge.Status != BindRevoked {
-		if _, err := tx.ExecContext(
-			ctx,
-			"UPDATE bind_challenges SET status = ? WHERE code_hash = ?",
-			BindExpired,
-			codeHash,
-		); err != nil {
-			return BindChallenge{}, false, err
-		}
-		challenge.Status = BindExpired
-	}
-	if err := tx.Commit(); err != nil {
-		return BindChallenge{}, false, err
-	}
-	return challenge, false, nil
-}
-
-func (s *SQLiteStore) GetChallenge(ctx context.Context, codeHash []byte) (BindChallenge, error) {
-	return getChallenge(ctx, s.db, codeHash)
-}
-
-func (s *SQLiteStore) ConfirmChallenge(
-	ctx context.Context,
-	codeHash []byte,
-	node Node,
-	token DeviceTokenRecord,
-	now time.Time,
-) (BindChallenge, Node, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-	defer tx.Rollback()
-
-	challenge, err := getChallenge(ctx, tx, codeHash)
-	if err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-	switch challenge.Status {
-	case BindConfirmed:
-		existing, err := getNode(ctx, tx, challenge.NodeID)
-		return challenge, existing, err
-	case BindClaimed:
-		return BindChallenge{}, Node{}, ErrClaimed
-	case BindExpired:
-		return BindChallenge{}, Node{}, ErrExpired
-	case BindRevoked:
-		return BindChallenge{}, Node{}, ErrConflict
-	case BindPending:
-	default:
-		return BindChallenge{}, Node{}, ErrConflict
-	}
-	if now.After(challenge.ExpiresAt) {
-		if _, err := tx.ExecContext(
-			ctx,
-			"UPDATE bind_challenges SET status = ? WHERE code_hash = ?",
-			BindExpired,
-			codeHash,
-		); err != nil {
-			return BindChallenge{}, Node{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return BindChallenge{}, Node{}, err
-		}
-		return BindChallenge{}, Node{}, ErrExpired
-	}
-
-	const insertNode = "INSERT INTO nodes " +
-		"(id, device_id, name, status, access_mode, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-	if _, err := tx.ExecContext(
-		ctx,
-		insertNode,
-		node.ID,
-		node.DeviceID,
-		node.Name,
-		node.Status,
-		node.AccessMode,
-		toMillis(node.CreatedAt),
-	); err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-	const insertToken = "INSERT INTO device_tokens " +
-		"(id, node_id, token_hash, status, created_at) VALUES (?, ?, ?, ?, ?)"
-	if _, err := tx.ExecContext(
-		ctx,
-		insertToken,
-		token.ID,
-		token.NodeID,
-		token.TokenHash,
-		token.Status,
-		toMillis(token.CreatedAt),
-	); err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-	const updateChallenge = "UPDATE bind_challenges SET status = ?, node_id = ?, confirmed_at = ? WHERE code_hash = ?"
-	if _, err := tx.ExecContext(
-		ctx,
-		updateChallenge,
-		BindConfirmed,
-		node.ID,
-		toMillis(now),
-		codeHash,
-	); err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return BindChallenge{}, Node{}, err
-	}
-
-	challenge.Status = BindConfirmed
-	challenge.NodeID = node.ID
-	challenge.ConfirmedAt = &now
-	return challenge, node, nil
-}
-
-func (s *SQLiteStore) RevokeChallenge(ctx context.Context, codeHash []byte) error {
-	const query = "UPDATE bind_challenges SET status = ? WHERE code_hash = ? AND status = ?"
-	result, err := s.db.ExecContext(ctx, query, BindRevoked, codeHash, BindPending)
-	if err != nil {
-		return err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrConflict
-	}
-	return nil
-}
-
-func (s *SQLiteStore) GetNode(ctx context.Context, nodeID string) (Node, error) {
-	return getNode(ctx, s.db, nodeID)
-}
-
-func (s *SQLiteStore) ListNodes(ctx context.Context) ([]Node, error) {
-	const query = "SELECT id, device_id, name, status, access_mode, created_at, last_seen_at FROM nodes"
-	rows, err := s.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	nodes := make([]Node, 0)
-	for rows.Next() {
-		var node Node
-		var createdAt int64
-		var lastSeenAt sql.NullInt64
-		if err := rows.Scan(
-			&node.ID,
-			&node.DeviceID,
-			&node.Name,
-			&node.Status,
-			&node.AccessMode,
-			&createdAt,
-			&lastSeenAt,
-		); err != nil {
-			return nil, err
-		}
-		node.CreatedAt = fromMillis(createdAt)
-		node.LastSeenAt = nullableTime(lastSeenAt)
-		nodes = append(nodes, node)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return nodes, nil
-}
-
-func (s *SQLiteStore) RenameNode(ctx context.Context, nodeID, name string) (Node, error) {
-	result, err := s.db.ExecContext(ctx, "UPDATE nodes SET name = ? WHERE id = ?", name, nodeID)
-	if err != nil {
-		return Node{}, err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return Node{}, err
-	}
-	if affected == 0 {
-		return Node{}, ErrNotFound
-	}
-	return getNode(ctx, s.db, nodeID)
-}
-
-func (s *SQLiteStore) DeleteNode(ctx context.Context, nodeID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "DELETE FROM device_tokens WHERE node_id = ?", nodeID); err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(ctx, "DELETE FROM nodes WHERE id = ?", nodeID)
-	if err != nil {
-		return err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return tx.Commit()
-}
-
-func (s *SQLiteStore) AuthenticateDeviceToken(ctx context.Context, tokenHash []byte, now time.Time) (Node, error) {
-	const query = "SELECT n.id, n.device_id, n.name, n.status, n.access_mode, n.created_at, n.last_seen_at " +
-		"FROM device_tokens t JOIN nodes n ON n.id = t.node_id " +
-		"WHERE t.token_hash = ? AND t.status = 'active' AND n.status = 'active'"
-	var node Node
-	var createdAt int64
-	var lastSeenAt sql.NullInt64
-	err := s.db.QueryRowContext(ctx, query, tokenHash).Scan(
-		&node.ID,
-		&node.DeviceID,
-		&node.Name,
-		&node.Status,
-		&node.AccessMode,
-		&createdAt,
-		&lastSeenAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Node{}, ErrNotFound
-	}
-	if err != nil {
-		return Node{}, err
-	}
-	node.CreatedAt = fromMillis(createdAt)
-	node.LastSeenAt = nullableTime(lastSeenAt)
-
-	nowMillis := toMillis(now)
-	if _, err := s.db.ExecContext(
-		ctx,
-		"UPDATE device_tokens SET last_used_at = ? WHERE token_hash = ?",
-		nowMillis,
-		tokenHash,
-	); err != nil {
-		return Node{}, err
-	}
-	if _, err := s.db.ExecContext(
-		ctx,
-		"UPDATE nodes SET last_seen_at = ? WHERE id = ?",
-		nowMillis,
-		node.ID,
-	); err != nil {
-		return Node{}, err
-	}
-	node.LastSeenAt = &now
-	return node, nil
-}
-
-func (s *SQLiteStore) SaveAdminSession(ctx context.Context, session AdminSession) error {
-	const query = "INSERT INTO admin_sessions " +
-		"(session_hash, csrf_hash, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)"
-	_, err := s.db.ExecContext(
-		ctx,
-		query,
-		session.SessionHash,
-		session.CSRFHash,
-		toMillis(session.ExpiresAt),
-		toMillis(session.CreatedAt),
-		toMillis(session.LastSeenAt),
-	)
-	return err
-}
-
-func (s *SQLiteStore) GetAdminSession(ctx context.Context, sessionHash []byte, now time.Time) (AdminSession, error) {
-	const query = "SELECT session_hash, csrf_hash, expires_at, created_at, last_seen_at " +
-		"FROM admin_sessions WHERE session_hash = ?"
-	var session AdminSession
-	var expiresAt, createdAt, lastSeenAt int64
-	err := s.db.QueryRowContext(ctx, query, sessionHash).Scan(
-		&session.SessionHash,
-		&session.CSRFHash,
-		&expiresAt,
-		&createdAt,
-		&lastSeenAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return AdminSession{}, ErrNotFound
-	}
-	if err != nil {
-		return AdminSession{}, err
-	}
-	session.ExpiresAt = fromMillis(expiresAt)
-	session.CreatedAt = fromMillis(createdAt)
-	session.LastSeenAt = fromMillis(lastSeenAt)
-	if !now.Before(session.ExpiresAt) {
-		_, _ = s.db.ExecContext(ctx, "DELETE FROM admin_sessions WHERE session_hash = ?", sessionHash)
-		return AdminSession{}, ErrExpired
-	}
-	if _, err := s.db.ExecContext(
-		ctx,
-		"UPDATE admin_sessions SET last_seen_at = ? WHERE session_hash = ?",
-		toMillis(now),
-		sessionHash,
-	); err != nil {
-		return AdminSession{}, err
-	}
-	session.LastSeenAt = now
-	return session, nil
-}
-
-func (s *SQLiteStore) DeleteExpired(ctx context.Context, now time.Time) error {
-	nowMillis := toMillis(now)
-	if _, err := s.db.ExecContext(
-		ctx,
-		"DELETE FROM admin_sessions WHERE expires_at <= ?",
-		nowMillis,
-	); err != nil {
-		return err
-	}
-	const query = "UPDATE bind_challenges SET status = ? " +
-		"WHERE expires_at <= ? AND status IN (?, ?)"
-	_, err := s.db.ExecContext(ctx, query, BindExpired, nowMillis, BindPending, BindConfirmed)
-	return err
-}
-
 type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func getChallenge(ctx context.Context, q queryer, codeHash []byte) (BindChallenge, error) {
-	const query = "SELECT code_hash, device_id, requested_node_name, root_hint, status, node_id, " +
-		"token_derivation_version, expires_at, created_at, confirmed_at " +
-		"FROM bind_challenges WHERE code_hash = ?"
-	var challenge BindChallenge
-	var status string
-	var expiresAt, createdAt int64
-	var confirmedAt sql.NullInt64
-	err := q.QueryRowContext(ctx, query, codeHash).Scan(
-		&challenge.CodeHash,
-		&challenge.DeviceID,
-		&challenge.RequestedNodeName,
-		&challenge.RootHint,
-		&status,
-		&challenge.NodeID,
-		&challenge.TokenDerivationVersion,
-		&expiresAt,
-		&createdAt,
-		&confirmedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return BindChallenge{}, ErrNotFound
-	}
-	if err != nil {
-		return BindChallenge{}, err
-	}
-	challenge.Status = BindStatus(status)
-	challenge.ExpiresAt = fromMillis(expiresAt)
-	challenge.CreatedAt = fromMillis(createdAt)
-	challenge.ConfirmedAt = nullableTime(confirmedAt)
-	return challenge, nil
-}
-
-func getNode(ctx context.Context, q queryer, nodeID string) (Node, error) {
-	const query = "SELECT id, device_id, name, status, access_mode, created_at, last_seen_at " +
-		"FROM nodes WHERE id = ?"
-	var node Node
-	var createdAt int64
-	var lastSeenAt sql.NullInt64
-	err := q.QueryRowContext(ctx, query, nodeID).Scan(
-		&node.ID,
-		&node.DeviceID,
-		&node.Name,
-		&node.Status,
-		&node.AccessMode,
-		&createdAt,
-		&lastSeenAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Node{}, ErrNotFound
-	}
-	if err != nil {
-		return Node{}, err
-	}
-	node.CreatedAt = fromMillis(createdAt)
-	node.LastSeenAt = nullableTime(lastSeenAt)
-	return node, nil
 }
 
 func toMillis(value time.Time) int64 {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"mindfs-cloud/internal/binding"
+	"mindfs-cloud/internal/identity"
 	"mindfs-cloud/internal/store"
 )
 
@@ -23,15 +23,16 @@ type RelayNodePayload struct {
 }
 
 func (a *App) handleRelayNodesList(w http.ResponseWriter, r *http.Request) {
-	if _, err := a.authenticateAdmin(r); err != nil {
-		if errors.Is(err, binding.ErrAuthRequired) {
+	user, _, err := a.authenticateUser(r)
+	if err != nil {
+		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		} else {
 			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "request_failed"})
 		}
 		return
 	}
-	nodes, err := a.store.ListNodes(r.Context())
+	nodes, err := a.store.ListNodesByOwner(r.Context(), user.ID)
 	if err != nil {
 		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "request_failed"})
 		return
@@ -57,7 +58,8 @@ func (a *App) handleRelayNodesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRelayNodeRename(w http.ResponseWriter, r *http.Request) {
-	if !a.authorizeRelayWrite(w, r) {
+	user, ok := a.authorizeRelayWrite(w, r)
+	if !ok {
 		return
 	}
 	var input struct {
@@ -72,7 +74,7 @@ func (a *App) handleRelayNodeRename(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-	node, err := a.store.RenameNode(r.Context(), strings.TrimSpace(r.PathValue("id")), name)
+	node, err := a.store.RenameNodeByOwner(r.Context(), user.ID, strings.TrimSpace(r.PathValue("id")), name)
 	if errors.Is(err, store.ErrNotFound) {
 		respondJSON(w, http.StatusNotFound, map[string]string{"error": "node_not_found"})
 		return
@@ -85,11 +87,12 @@ func (a *App) handleRelayNodeRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRelayNodeDelete(w http.ResponseWriter, r *http.Request) {
-	if !a.authorizeRelayWrite(w, r) {
+	user, ok := a.authorizeRelayWrite(w, r)
+	if !ok {
 		return
 	}
 	nodeID := strings.TrimSpace(r.PathValue("id"))
-	if err := a.store.DeleteNode(r.Context(), nodeID); errors.Is(err, store.ErrNotFound) {
+	if err := a.store.DeleteNodeByOwner(r.Context(), user.ID, nodeID); errors.Is(err, store.ErrNotFound) {
 		respondJSON(w, http.StatusNotFound, map[string]string{"error": "node_not_found"})
 		return
 	} else if err != nil {
@@ -102,21 +105,17 @@ func (a *App) handleRelayNodeDelete(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-func (a *App) authorizeRelayWrite(w http.ResponseWriter, r *http.Request) bool {
-	if _, err := a.authenticateAdmin(r); err != nil {
-		if errors.Is(err, binding.ErrAuthRequired) {
+func (a *App) authorizeRelayWrite(w http.ResponseWriter, r *http.Request) (store.User, bool) {
+	user, _, err := a.authenticateUser(r)
+	if err != nil {
+		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		} else {
 			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "request_failed"})
 		}
-		return false
+		return store.User{}, false
 	}
-	origin, err := url.Parse(strings.TrimSpace(r.Header.Get("Origin")))
-	if err != nil || origin.Scheme != a.config.PublicURL.Scheme || !strings.EqualFold(origin.Host, a.config.PublicURL.Host) {
-		respondJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-		return false
-	}
-	return true
+	return user, a.requireSameOrigin(w, r)
 }
 
 func (a *App) relayNodePayload(node store.Node) RelayNodePayload {
