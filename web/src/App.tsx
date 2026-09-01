@@ -23,6 +23,7 @@ import {
   type RelatedFile,
   type RelatedWorktree,
   type Session,
+  type TokenUsage,
   type QueuedUserMessage,
 } from "./services/session";
 import { buildClientContext } from "./services/context";
@@ -369,6 +370,7 @@ export type SessionItem = {
       totalTokens: number;
       modelContextWindow: number;
     };
+    token_usage?: TokenUsage;
   }>;
   pending?: boolean;
 };
@@ -565,6 +567,7 @@ type Exchange = {
     totalTokens: number;
     modelContextWindow: number;
   };
+  token_usage?: TokenUsage;
   timestamp?: string;
   toolCall?: any;
   todoUpdate?: any;
@@ -1406,6 +1409,7 @@ const SIDEBARS_SWAPPED_STORAGE_KEY = "mindfs-sidebars-swapped";
 const GIT_DIFF_SIDE_BY_SIDE_STORAGE_KEY = "mindfs-git-diff-side-by-side";
 const TASK_CREATE_WORKTREE_PREF_STORAGE_KEY = "mindfs-task-create-worktree-pref";
 const MAIN_CONTENT_VIEW_STORAGE_KEY = "mindfs-main-content-view";
+const DEFAULT_MAIN_CONTENT_VIEW_STORAGE_KEY = "mindfs-default-main-content-view";
 
 type TaskCreateWorktreePreference = {
   createWorktree: boolean;
@@ -1426,6 +1430,16 @@ function loadMainContentViewByRoot(): Record<string, MainContentViewMode> {
     ) as Record<string, MainContentViewMode>;
   } catch {
     return {};
+  }
+}
+
+function loadDefaultMainContentView(): MainContentViewMode {
+  if (typeof window === "undefined") return "task-kanban";
+  try {
+    const saved = window.localStorage.getItem(DEFAULT_MAIN_CONTENT_VIEW_STORAGE_KEY);
+    return isMainContentViewMode(saved) ? saved : "task-kanban";
+  } catch {
+    return "task-kanban";
   }
 }
 
@@ -1681,6 +1695,8 @@ export function App({ onGoHome }: AppProps) {
     () => window.innerWidth >= 768,
   );
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingMainContentViewRoot, setOnboardingMainContentViewRoot] =
+    useState<string | null>(null);
   const onboardingAutoStartRef = useRef(false);
   const [currentRootId, setCurrentRootId] = useState<string | null>(null);
   const currentRootIdRef = useRef<string | null>(null);
@@ -2437,6 +2453,7 @@ export function App({ onGoHome }: AppProps) {
   useEffect(() => {
     if (isMobile && onboardingOpen) {
       setOnboardingOpen(false);
+      setOnboardingMainContentViewRoot(null);
     }
   }, [isMobile, onboardingOpen]);
   const [e2eeSecretInput, setE2eeSecretInput] = useState("");
@@ -2504,6 +2521,9 @@ export function App({ onGoHome }: AppProps) {
   });
   const [mainContentViewByRoot, setMainContentViewByRoot] = useState<Record<string, MainContentViewMode>>(
     () => loadMainContentViewByRoot(),
+  );
+  const [defaultMainContentView, setDefaultMainContentView] = useState<MainContentViewMode>(
+    () => loadDefaultMainContentView(),
   );
   const [status, setStatus] = useState<WSStatus>("disconnected");
   const [file, setFile] = useState<FilePayload | null>(null);
@@ -2832,6 +2852,15 @@ export function App({ onGoHome }: AppProps) {
     );
   }, [mainContentViewByRoot]);
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      DEFAULT_MAIN_CONTENT_VIEW_STORAGE_KEY,
+      defaultMainContentView,
+    );
+  }, [defaultMainContentView]);
+  useEffect(() => {
     const rootID = currentRootId;
     if (!rootID) return;
     setActiveBoundSessionKey(boundSessionByRootRef.current[rootID] || null);
@@ -2903,15 +2932,27 @@ export function App({ onGoHome }: AppProps) {
     ? directorySortOverrides[currentDirectorySortKey]
     : undefined;
   const currentMainContentView: MainContentViewMode =
-    (currentRootId && mainContentViewByRoot[currentRootId]) || "task-kanban";
+    currentRootId && onboardingMainContentViewRoot === currentRootId
+      ? "task-kanban"
+      : (currentRootId && mainContentViewByRoot[currentRootId]) ||
+        defaultMainContentView;
+  const setMainContentViewForRoot = useCallback(
+    (rootID: string, mode: MainContentViewMode) => {
+      if (!rootID) return;
+      setMainContentViewByRoot((prev) => {
+        if (prev[rootID] === mode) return prev;
+        return { ...prev, [rootID]: mode };
+      });
+    },
+    [],
+  );
   const handleMainContentViewChange = useCallback((mode: MainContentViewMode) => {
     const rootID = currentRootIdRef.current;
     if (!rootID) return;
-    setMainContentViewByRoot((prev) => {
-      if (prev[rootID] === mode) return prev;
-      return { ...prev, [rootID]: mode };
-    });
-  }, []);
+    setOnboardingMainContentViewRoot(null);
+    setMainContentViewForRoot(rootID, mode);
+    setDefaultMainContentView(mode);
+  }, [setMainContentViewForRoot]);
   const currentDirectorySortMode = currentDirectorySortOverride || treeSortMode;
 
   const replaceURLState = useCallback((next: URLState) => {
@@ -2932,7 +2973,7 @@ export function App({ onGoHome }: AppProps) {
       setFile(null);
       setGitDiff(null);
       setSelectedDir(currentRootId);
-      handleMainContentViewChange("task-kanban");
+      setOnboardingMainContentViewRoot(currentRootId);
       replaceURLState({ root: currentRootId, file: "", session: "", cursor: 0, pluginQuery: {} });
     }
 
@@ -2943,7 +2984,7 @@ export function App({ onGoHome }: AppProps) {
     }
     setIsLeftOpen(showingSidebar);
     setIsRightOpen(showingSessions);
-  }, [currentRootId, handleMainContentViewChange, isMobile, replaceURLState]);
+  }, [currentRootId, isMobile, replaceURLState]);
 
   const redirectToRelayLogin = useCallback(() => {
     const next = encodeURIComponent(
@@ -4399,10 +4440,24 @@ export function App({ onGoHome }: AppProps) {
       rootID: string,
       sessionKey: string,
       contextWindow?: { totalTokens?: number; modelContextWindow?: number },
+      tokenUsage?: TokenUsage,
     ) => {
       const totalTokens = Math.max(0, Number(contextWindow?.totalTokens || 0));
       const modelContextWindow = Math.max(0, Number(contextWindow?.modelContextWindow || 0));
-      if (!totalTokens || !modelContextWindow) {
+      const hasContextWindow = totalTokens > 0 && modelContextWindow > 0;
+      const normalizedTokenUsage = tokenUsage
+        ? {
+            inputTokens: Math.max(0, Number(tokenUsage.inputTokens || 0)),
+            outputTokens: Math.max(0, Number(tokenUsage.outputTokens || 0)),
+            ...(Number.isFinite(tokenUsage.cacheReadTokens)
+              ? { cacheReadTokens: Math.max(0, Number(tokenUsage.cacheReadTokens)) }
+              : {}),
+            ...(Number.isFinite(tokenUsage.cacheWriteTokens)
+              ? { cacheWriteTokens: Math.max(0, Number(tokenUsage.cacheWriteTokens)) }
+              : {}),
+          }
+        : undefined;
+      if (!hasContextWindow && !normalizedTokenUsage) {
         return;
       }
       const cacheKey = rootSessionKey(rootID, sessionKey);
@@ -4416,10 +4471,12 @@ export function App({ onGoHome }: AppProps) {
           ) {
             list[i] = {
               ...item,
-              context_window: {
-                totalTokens,
-                modelContextWindow,
-              },
+              ...(hasContextWindow
+                ? { context_window: { totalTokens, modelContextWindow } }
+                : {}),
+              ...(normalizedTokenUsage
+                ? { token_usage: normalizedTokenUsage }
+                : {}),
             };
             break;
           }
@@ -4432,10 +4489,9 @@ export function App({ onGoHome }: AppProps) {
         sessionCacheRef.current[cacheKey] = {
           ...(cached as any),
           exchanges,
-          context_window: {
-            totalTokens,
-            modelContextWindow,
-          },
+          ...(hasContextWindow
+            ? { context_window: { totalTokens, modelContextWindow } }
+            : {}),
           updated_at: new Date().toISOString(),
         } as Session;
       }
@@ -4448,10 +4504,9 @@ export function App({ onGoHome }: AppProps) {
         return {
           ...(prev as any),
           exchanges: stampList((((prev as any).exchanges || []) as Exchange[])),
-          context_window: {
-            totalTokens,
-            modelContextWindow,
-          },
+          ...(hasContextWindow
+            ? { context_window: { totalTokens, modelContextWindow } }
+            : {}),
         } as SessionItem;
       });
       const drawer = drawerSessionByRootRef.current[rootID];
@@ -4459,10 +4514,9 @@ export function App({ onGoHome }: AppProps) {
         setDrawerSessionForRoot(rootID, {
           ...(drawer as any),
           exchanges: stampList((((drawer as any).exchanges || []) as Exchange[])),
-          context_window: {
-            totalTokens,
-            modelContextWindow,
-          },
+          ...(hasContextWindow
+            ? { context_window: { totalTokens, modelContextWindow } }
+            : {}),
         } as Session);
       }
       bumpCacheVersion();
@@ -9357,6 +9411,7 @@ export function App({ onGoHome }: AppProps) {
             activeRoot,
             streamKey,
             event.data?.contextWindow,
+            event.data?.tokenUsage,
           );
           tokenStationRefreshRef.current?.();
           setCodexRateLimitsRefreshToken((value) => value + 1);
@@ -11421,12 +11476,9 @@ export function App({ onGoHome }: AppProps) {
     );
   };
   const currentRootSlashCommandResult = slashCommandResultForSession(currentRootId, null);
-  const sessionViewerComposerOverlayInset =
-    String((actionBarSession as any)?.agent || "").toLowerCase() === "codex" ||
-    (actionBarSession as any)?.plan_mode ||
-    pendingPlanMode
-      ? 20
-      : 0;
+  // The memory badge is always rendered above the composer, so floating
+  // session controls must always clear that overlay row.
+  const sessionViewerComposerOverlayInset = 20;
   const sessionView = (
     <SessionViewer
       session={selectedSessionSnapshot}
@@ -14601,6 +14653,7 @@ export function App({ onGoHome }: AppProps) {
         onComplete={() => {
           completeOnboarding();
           setOnboardingOpen(false);
+          setOnboardingMainContentViewRoot(null);
           if (isMobile) {
             setIsLeftOpen(false);
             setIsRightOpen(false);
@@ -14609,6 +14662,7 @@ export function App({ onGoHome }: AppProps) {
         onDismiss={() => {
           dismissOnboarding();
           setOnboardingOpen(false);
+          setOnboardingMainContentViewRoot(null);
           if (isMobile) {
             setIsLeftOpen(false);
             setIsRightOpen(false);
