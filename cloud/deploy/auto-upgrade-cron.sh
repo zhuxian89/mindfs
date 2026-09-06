@@ -1,7 +1,10 @@
 #!/bin/bash
-# cron wrapper: SKIPPED 时静默，其余(OK/FAILED)输出并投递
-out=$(/root/ai-projects/mindfs/cloud/deploy/auto-upgrade.sh 2>&1)
+# cron wrapper: 仅成功的 SKIPPED 静默；失败保留全部输出和退出码。
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+out=$("$script_dir/auto-upgrade.sh" 2>&1)
 rc=$?
-case "$out" in *"UPGRADE SKIPPED"*) exit 0;; esac
-echo "$out"
-exit $rc
+if [ "$rc" -eq 0 ] && [[ "$out" == 'UPGRADE SKIPPED:'* ]]; then
+  exit 0
+fi
+printf '%s\n' "$out"
+exit "$rc"

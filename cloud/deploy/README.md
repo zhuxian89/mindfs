@@ -4,13 +4,17 @@ This document is the deployment contract for human operators and AI agents.
 Run all commands from `cloud/deploy/` unless a step says otherwise. Do not
 improvise a different upgrade sequence.
 
+`docker-compose.yml` retains the local source-build workflow. The independent
+1Panel image workflow uses `docker-compose.1panel.yml` and `auto-upgrade.sh` as
+described below. Choose the procedure matching the existing deployment.
+
 ## Mandatory Safety Rules
 
 1. Never run `docker compose down -v`.
 2. Never remove or recreate the `relay-data`, `relay-assets`, or
    `relay-backups` volumes during a normal deployment or upgrade.
 3. Never run `docker system prune --volumes` on the Relay host.
-4. Never skip `refresh-assets.sh` (sync and coverage verification) after building a new Relay image or before upgrading a Node to a new official release.
+4. Never skip `refresh-assets.sh` (sync and coverage verification) when deploying a new Relay image or before upgrading a Node to a new official release.
 5. Stop the deployment immediately if `asset-sync`, `validate`, `migrate`, a
    health check, or an asset verification command fails.
 6. Keep `cloud/deploy/.env` only on the server. Never commit it or print its
@@ -113,9 +117,134 @@ docker compose ps
 not true, inspect the logs and stop. Do not delete volumes and retry from an
 empty state.
 
-## Required Upgrade Procedure
+## Independent 1Panel Image Deployment
 
-For every application upgrade, run exactly this sequence:
+There are three independent operations:
+
+| Operation | Entry point | Result |
+| --- | --- | --- |
+| Sync upstream source | `./sync-upstream.sh` | Merge upstream into local main and push origin main |
+| Publish the image | `.github/workflows/build-relay.yml` | Test Cloud, then publish Linux AMD64/ARM64 images to GHCR |
+| Upgrade the server | `./auto-upgrade.sh` | Deploy an already published image and verify the result |
+
+The Actions workflow runs on pushes to main or a manual main-branch dispatch.
+It publishes `ghcr.io/zhuxian89/mindfs-relay:<full-commit-SHA>`. Before updating
+`latest`, it fetches main and verifies that the build still matches its head.
+Publishing jobs run serially without canceling an active job. The workflow does
+not connect to the server or install a scheduler. Deploying an image does not
+update the server checkout's scripts or Compose files.
+
+### First switch from server builds
+
+1. Commit the workflow, scripts and image-based 1Panel Compose to your main
+   branch and wait for a successful Actions publication. Update the server's
+   deployment files through your normal reviewed Git update, preserving `.env`
+   and any local configuration. These repository changes do not switch a
+   running server by themselves.
+2. Check the GHCR package's visibility. A public package can be pulled without
+   login. For a private package, run `docker login ghcr.io --username zhuxian89`
+   as the account that runs deployments, using a token with `read:packages`
+   and access to the package. Enter the token at the password prompt; do not
+   put it in Compose, a shell command argument, or Git. Actions uses its own
+   `GITHUB_TOKEN` with `packages: write`.
+3. The deployment host needs Linux, Bash, util-linux `flock`, Python 3 (standard
+   library only), curl, Docker and Compose V2 2.29.7 or newer. The running Relay
+   must support `backup`. Resource sync/check also needs access to official
+   GitHub Releases. Server-side Node/Go builds and the former 3 GiB build-memory
+   check are no longer needed.
+4. Keep the existing Compose project, `.env`, container name and named volumes.
+   Inspect only the relevant identity fields, without printing container env:
+
+   ```bash
+   docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' mindfs-relay
+   docker inspect --format '{{range .Mounts}}{{println .Destination .Type .Name}}{{end}}' mindfs-relay
+   ```
+
+Set `COMPOSE_PROJECT_NAME` to the existing project name shown above. A project
+name change can select different volume names, so the upgrade script refuses a
+project/service or data/assets/backups mount mismatch before backup or sync.
+It also checks that `asset-sync` writes the same asset volume. It requires an
+existing running Relay; use the first-deployment procedure for a new stack.
+
+For example, from the existing checkout (replace `your-existing-project`):
+
+```bash
+export COMPOSE_FILE=docker-compose.1panel.yml
+export COMPOSE_PROJECT_NAME=your-existing-project
+export RELAY_IMAGE=ghcr.io/zhuxian89/mindfs-relay:latest
+./auto-upgrade.sh
+```
+
+Use the same environment for manual operations such as `refresh-assets.sh`.
+`auto-upgrade.sh` defaults `COMPOSE_FILE` to the 1Panel file and inherits an
+explicit caller value, including override files. The scripts resolve their
+directory themselves, so a scheduler may start in another working directory.
+Keep the deployment files and their `.env` in the existing directory. You can
+persist the existing `COMPOSE_PROJECT_NAME` in the server-only `.env`, or supply
+it in the scheduler environment. Do not source `.env` as a shell script.
+
+### Daily use and failure handling
+
+To sync upstream independently:
+
+```bash
+./sync-upstream.sh
+```
+
+This requires a clean tracked working tree on main, configured origin/upstream
+remotes, Git author identity and permission to push origin. It fast-forwards
+origin first, merges upstream, then pushes any pending commits. It stops on an
+existing merge/rebase/cherry-pick/revert, divergence from origin or a merge
+conflict; only its own failed merge is aborted. A rejected push leaves the
+merged commit available for the next run to push again. It never invokes Docker.
+
+Run `auto-upgrade.sh` manually or keep calling `auto-upgrade-cron.sh` from your
+existing 1Panel/cron task, with the same Compose environment. No cron job is
+installed by the repository. The wrapper suppresses successful `UPGRADE SKIPPED:`
+output and preserves every nonzero exit code and its output. Both maintenance
+entry points share a nonblocking lock in this checkout; use one checkout per
+stack. A separately scheduled `refresh-assets.sh` still needs to be kept from
+overlapping deployments.
+
+Each deployment pulls the configured image and resolves it to an immutable
+registry digest. `asset-sync`, coverage check, validation, migration and Relay
+recreation all use that digest and the existing project. The sequence is:
+
+```text
+check project/volumes → pull and pin digest → check previous success
+→ online backup → refresh-assets (sync + check) → validate → migrate
+→ recreate Relay and wait for health → verify public health/readiness and JS/CSS
+→ atomically record successful-image
+```
+
+The `.relay-upgrade/` directory is Git-ignored and private. It contains the lock
+and the last fully verified digest, `successful-image`. Temporary Compose and
+Docker JSON is private and removed on normal success or failure; it is never
+printed. Preserve this directory and do not edit the success marker manually.
+
+An unchanged digest is skipped only if its success marker matches and the
+actual container uses the corresponding local image ID and is healthy. If CI
+is still building, this run consumes the previous published image; the next
+independent run can deploy the new one. It does not wait for CI or use Git HEAD
+to decide whether an upgrade is needed.
+
+Any failed stage exits nonzero without overwriting the last success marker.
+Fix the reported cause and rerun; a previous failed attempt is not considered
+success. If Relay has stopped, restore it to a running state after diagnosis so
+that the next attempt can take an online backup. Failures after migration or
+asset sync may already have changed persistent state. There is no automatic
+database rollback, and switching back to an older image does not undo migration.
+
+To select a particular published version, set `RELAY_IMAGE` to its full SHA
+tag or `ghcr.io/zhuxian89/mindfs-relay@sha256:<digest>` before running the same
+script. Digest resolution fails closed if the local tag has multiple matching
+registry digests; in that case use the explicit digest from the successful
+Actions build. Return to `:latest` to resume following new publications.
+
+## Required Source-Build Upgrade Procedure
+
+For upgrades using the default local-build Compose, run this sequence. The
+1Panel image deployment above replaces this sequence for that stack:
 
 ```bash
 set -euo pipefail

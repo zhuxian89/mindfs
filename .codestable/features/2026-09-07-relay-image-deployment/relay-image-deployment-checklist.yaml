@@ -1,0 +1,62 @@
+feature: 2026-09-07-relay-image-deployment
+created: 2026-09-07
+steps:
+  - id: S1
+    action: 发布镜像配置，保留本地源码构建契约
+    exit_signal: workflow 和生产 Compose 静态测试通过，生产双服务共享镜像
+    status: done
+    evidence: go -C cloud test ./deploy 通过；合成 Compose config 验证双服务同 digest、无 build、卷名不变。真实 Actions 构建未执行。
+  - id: S2
+    action: 独立上游同步入口
+    exit_signal: 同步冲突和 push 失败重试的本地 Git 测试通过
+    status: done
+    evidence: 临时本地 Git 仓库测试通过，覆盖 push 拒绝后重试、冲突、脏工作区、已有操作、分支与 origin 分叉保护；未访问真实 remote。
+  - id: S3
+    action: 独立镜像部署入口与失败重试
+    exit_signal: digest 一致、资源检查、项目卷守护、失败重试和 cron 传播测试通过
+    status: done
+    evidence: 离线故障注入、digest 一致性、项目/卷守护、成功标记与重试、调用者 Compose 环境继承、锁结果及 cron 退出码测试通过；真实 flock 并发测试限定 Linux CI。
+  - id: S4
+    action: 运维说明与最终回归
+    exit_signal: Go 回归、Shell 语法、合成 Compose 检查和主代理单独 diff 复核通过，app 改动未触碰；独立 reviewer 留待验收
+    status: done
+    evidence: go -C cloud test ./... 通过（deploy 146.176s）；actionlint v1.7.7、六个 action commit 存在性、Shell 语法、两份合成 Compose、git diff --check 通过；27 个保护文件 SHA256 一致。独立代理审查及真实发布部署未执行。
+checks:
+  - item: 只有 main 当前成功构建更新 latest，发布不执行生产操作
+    source: design 第3节/S1
+    status: done
+  - item: 默认 Compose 保留 build，生产共享 image
+    source: design 第3节/S1
+    status: done
+  - item: 上游同步不调用 Docker，不覆盖本地工作，push 失败可重试
+    source: design 第3节/S2
+    status: done
+  - item: 部署不调用 Git/build，仅消费已发布的固定 digest
+    source: design 第3节/S3
+    status: done
+  - item: 完整成功后才记录版本，任一失败可在下次重试
+    source: design 第3节/S3
+    status: done
+  - item: 同步与部署互斥，现网 project 和卷身份保持
+    source: design 第3节/S3
+    status: done
+  - item: cron 不吞非零失败，生产凭据不输出
+    source: design 第3节/S3
+    status: done
+  - item: 无 app/客户端/暂停 feature 变动，无实际发布部署
+    source: design 第3节/S4
+    status: done
+dod:
+  commands:
+    - id: deploy-tests
+      command: go -C cloud test ./deploy
+      core: true
+      failure_handling: diagnose
+    - id: cloud-tests
+      command: go -C cloud test ./...
+      core: true
+      failure_handling: distinguish-baseline
+    - id: whitespace
+      command: git diff --check
+      core: true
+      failure_handling: fix-scope

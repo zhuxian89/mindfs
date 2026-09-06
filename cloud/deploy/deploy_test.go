@@ -41,6 +41,54 @@ func TestDeploymentFilesContainRequiredBoundaries(t *testing.T) {
 	}
 }
 
+func TestProductionComposeUsesOnePublishedImage(t *testing.T) {
+	compose := read(t, "docker-compose.1panel.yml")
+	for _, required := range []string{
+		"image: ${RELAY_IMAGE:-ghcr.io/zhuxian89/mindfs-relay:latest}",
+		"container_name: mindfs-relay",
+		"127.0.0.1:13005:8080",
+		"relay-data:/var/lib/mindfs-cloud",
+		"relay-assets:/var/lib/mindfs-assets:ro",
+		"relay-backups:/backups",
+	} {
+		if !strings.Contains(compose, required) {
+			t.Fatalf("production compose missing %q", required)
+		}
+	}
+	if strings.Contains(compose, "build:") || strings.Count(compose, "<<: *relay-image") != 2 {
+		t.Fatal("production services must share one published image without building")
+	}
+}
+
+func TestRelayImageWorkflowSeparatesPublishingFromDeployment(t *testing.T) {
+	workflow := read(t, "../../.github/workflows/build-relay.yml")
+	for _, required := range []string{
+		"branches: [main]",
+		"if: github.ref == 'refs/heads/main'",
+		"contents: read",
+		"packages: write",
+		"cancel-in-progress: false",
+		"go-version-file: cloud/go.mod",
+		"run: go test ./...",
+		"context: .",
+		"file: cloud/Dockerfile",
+		"platforms: linux/amd64,linux/arm64",
+		"tags: ${{ env.IMAGE }}:${{ github.sha }}",
+		"git fetch --no-tags origin main",
+		`if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then`,
+		`docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$DIGEST"`,
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("workflow missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"ssh ", "ssh-action", "auto-upgrade.sh", "docker compose up"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("publishing workflow must not deploy: %q", forbidden)
+		}
+	}
+}
+
 func read(t *testing.T, path string) string {
 	t.Helper()
 	payload, err := os.ReadFile(path)

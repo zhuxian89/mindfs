@@ -153,6 +153,10 @@ mindfs-relay check-assets /var/lib/mindfs-assets
 
 容器从仓库根以独立 stage 构建现有 `web/` 和 `cloud/`，最终使用 distroless non-root 用户。Compose 从 Git ignored、建议 `0600` 的 `cloud/deploy/.env` 注入 QQ SMTP 和 bootstrap email；SMTP 授权码不进入 Git 或 SQLite。Caddy/OpenResty 在 Cloud 外终止 TLS/WSS，并保留 Host、scheme 与 WebSocket upgrade headers。
 
+默认 `docker-compose.yml` 保留源码构建；`docker-compose.1panel.yml` 的两个服务共享 `RELAY_IMAGE`，默认消费 GHCR latest。`.github/workflows/build-relay.yml` 在 main 提交后测试 Cloud 并发布 AMD64/ARM64 的完整 SHA 镜像；串行发布任务在更新 latest 前核对当前 main。Actions 不连接生产服务器。
+
+`sync-upstream.sh` 独立快进 origin、合并 upstream 并重试待推送提交；`auto-upgrade.sh` 不调用 Git/build，只消费已发布镜像。部署入口在 Linux flock 互斥下核对现有 project/service 与三个 named volumes，拉取并固定 digest，再执行在线备份、资源 sync/check、validate、migrate、重建等待健康与公网健康/JS/CSS 验证。全部成功后才原子记录 `.relay-upgrade/successful-image`；记录、实际 image ID 和容器健康状态一致才跳过。失败不覆盖成功记录，也不自动回滚数据库。Python 3 标准库解析私有临时 JSON；配置和凭据不输出到日志。cron wrapper 保留失败退出码，仓库不安装调度器。两个入口共用同一 checkout 的锁，独立资源刷新仍需由运维避免并发。
+
 ## 8. 已知约束 / 边界情况
 
 2026-09-06 后端审计修复后的当前行为：

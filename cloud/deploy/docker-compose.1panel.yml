@@ -1,7 +1,5 @@
 x-relay-image: &relay-image
-  build:
-    context: ../..
-    dockerfile: cloud/Dockerfile
+  image: ${RELAY_IMAGE:-ghcr.io/zhuxian89/mindfs-relay:latest}
 
 services:
   asset-sync:
