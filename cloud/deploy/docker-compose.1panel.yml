@@ -1,0 +1,50 @@
+x-relay-image: &relay-image
+  build:
+    context: ../..
+    dockerfile: cloud/Dockerfile
+
+services:
+  asset-sync:
+    <<: *relay-image
+    restart: "no"
+    command: ["sync-assets", "/opt/mindfs/web", "/var/lib/mindfs-assets"]
+    volumes:
+      - relay-assets:/var/lib/mindfs-assets
+
+  relay:
+    <<: *relay-image
+    container_name: mindfs-relay
+    restart: unless-stopped
+    depends_on:
+      asset-sync:
+        condition: service_completed_successfully
+    environment:
+      MINDFS_CLOUD_ADDR: :8080
+      MINDFS_CLOUD_DATA_DIR: /var/lib/mindfs-cloud
+      MINDFS_CLOUD_ASSETS_DIR: /var/lib/mindfs-assets
+      MINDFS_CLOUD_PUBLIC_URL: ${MINDFS_CLOUD_PUBLIC_URL}
+      MINDFS_CLOUD_TOKEN_KEY: ${MINDFS_CLOUD_TOKEN_KEY}
+      MINDFS_CLOUD_SMTP_HOST: ${MINDFS_CLOUD_SMTP_HOST}
+      MINDFS_CLOUD_SMTP_PORT: ${MINDFS_CLOUD_SMTP_PORT}
+      MINDFS_CLOUD_SMTP_TLS: ${MINDFS_CLOUD_SMTP_TLS}
+      MINDFS_CLOUD_SMTP_FROM: ${MINDFS_CLOUD_SMTP_FROM}
+      MINDFS_CLOUD_SMTP_USERNAME: ${MINDFS_CLOUD_SMTP_USERNAME}
+      MINDFS_CLOUD_SMTP_PASSWORD: ${MINDFS_CLOUD_SMTP_PASSWORD}
+      MINDFS_CLOUD_BOOTSTRAP_EMAIL: ${MINDFS_CLOUD_BOOTSTRAP_EMAIL}
+    ports:
+      - "127.0.0.1:13005:8080"
+    volumes:
+      - relay-data:/var/lib/mindfs-cloud
+      - relay-assets:/var/lib/mindfs-assets:ro
+      - relay-backups:/backups
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mindfs-relay", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  relay-data:
+  relay-assets:
+  relay-backups:
