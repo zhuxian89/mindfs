@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>绑定节点 · MindFS Relay</title>
+  {{template "styles"}}
+</head>
+<body>
+<header class="topbar">{{template "brand"}}<span class="topbar-note">MindFS 节点访问入口</span></header>
+<main class="centered bind-main">
+  <section class="panel" aria-labelledby="bind-title">
+    <div class="panel-head">
+      <h1 id="bind-title">绑定节点</h1><p id="message" class="subtext" role="status">正在检查绑定状态…</p>
+      <ol class="steps" aria-label="绑定进度"><li aria-current="step">设备发起</li><li>确认绑定</li><li>连接节点</li></ol>
+    </div>
+    <div class="panel-body">
+      <div id="pending-view" hidden>
+        <div class="binding-note"><div class="node-icon">{{template "node-icon"}}</div><div>设备已就绪<p class="subtext">等待你确认此次连接</p></div></div>
+        <form id="confirm" class="form" hidden>
+          <div class="field"><label for="bind-name">节点名称</label><input id="bind-name" name="name" placeholder="例如：家里的 Mac" autocomplete="off" aria-describedby="name-help" required><span id="name-help" class="field-help">名称可以在节点列表中修改。</span></div>
+          <div class="bind-actions"><button type="button" id="reject" class="danger">拒绝绑定</button><button type="submit" class="primary">确认绑定 {{template "arrow-icon"}}</button></div>
+        </form>
+      </div>
+      <div id="state-view" class="state-view">
+        <div id="bind-state" class="bind-state"><span data-icon="device">{{template "node-icon"}}</span><span data-icon="online" hidden>{{template "check-icon"}}</span><span data-icon="failed" hidden>{{template "warning-icon"}}</span></div>
+        <h2 id="state-title">正在检查</h2><p id="state-description" class="subtext">请稍候，正在获取设备状态。</p>
+        <div id="node-reference" class="node-reference" hidden><div>节点 ID<p id="bound-node-id" class="node-id"></p></div><span id="connection-status" class="status">连接中</span></div>
+        <p id="wait-note" class="wait-note" hidden>本页会自动检查连接状态</p>
+      </div>
+      <p id="error" class="notice error" role="alert"></p>
+      <button id="retry" class="primary" type="button" hidden>重新检查</button>
+      <a id="nodeLink" class="button primary" hidden>打开节点 {{template "arrow-icon"}}</a>
+      <a id="return-nodes" class="button" href="/nodes" hidden>返回我的节点</a>
+      {{template "noscript"}}
+    </div>
+  </section>
+  <p class="page-note"><a href="/nodes">返回我的节点</a></p>
+</main>
+{{template "helpers"}}
+<script>
+const params = new URLSearchParams(location.search);
+const code = params.get("code") || "";
+const root = params.get("root") || "";
+const hintedName = params.get("node_name") || "";
+const message = document.getElementById("message");
+const title = document.getElementById("bind-title");
+const confirmForm = document.getElementById("confirm");
+const nodeName = document.getElementById("bind-name");
+const nodeLink = document.getElementById("nodeLink");
+const errorElement = document.getElementById("error");
+const retryButton = document.getElementById("retry");
+const stateIcon = document.getElementById("bind-state");
+const steps = [...document.querySelectorAll(".steps li")];
+let timer;
+let stopped = false;
+let deciding = false;
+let onlineTarget = null;
+let connectionStarted = 0;
+nodeName.value = hintedName;
+function state(heading, description, step, appearance = "", detailTitle = heading, detail = description) {
+  if (title.textContent !== heading) title.textContent = heading;
+  if (message.textContent !== description) message.textContent = description;
+  stateIcon.className = "bind-state" + (appearance ? " " + appearance : "");
+  for (const icon of stateIcon.querySelectorAll("[data-icon]")) icon.hidden = icon.dataset.icon !== (appearance || "device");
+  document.getElementById("pending-view").hidden = step !== 1;
+  document.getElementById("state-view").hidden = step === 1;
+  document.getElementById("state-title").textContent = detailTitle;
+  document.getElementById("state-description").textContent = detail;
+  document.getElementById("wait-note").hidden = !(step === 0 || (step === 2 && onlineTarget));
+  document.getElementById("return-nodes").hidden = !(step < 0 && !heading.includes("暂时"));
+  document.querySelector(".steps").hidden = step < 0;
+  const reference = document.getElementById("node-reference");
+  reference.hidden = !(step >= 2 && onlineTarget);
+  if (!reference.hidden) {
+    document.getElementById("bound-node-id").textContent = onlineTarget.nodeID;
+    const status = document.getElementById("connection-status");
+    status.textContent = appearance === "online" ? "在线" : "连接中";
+    status.classList.toggle("online", appearance === "online");
+  }
+  steps.forEach((item, index) => {
+    item.classList.toggle("done", index < step);
+    if (index === step) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  });
+}
+function schedule(callback, delay) {
+  clearTimeout(timer);
+  if (!stopped) timer = setTimeout(callback, delay);
+}
+function terminal(status) {
+  confirmForm.hidden = true;
+  retryButton.hidden = true;
+  const copy = {
+    confirmed: ["绑定已确认", "请返回节点列表，查看设备的连接状态。", 2, "", "查看已绑定的设备", "此链接已使用，设备的最新状态可以在节点列表查看。"],
+    expired: ["绑定链接已过期", "请从设备重新发起绑定。", -1, "failed", "从设备生成新的链接", "回到运行 MindFS 的设备，重新发起绑定，再打开新的绑定链接。"],
+    revoked: ["已拒绝绑定", "此次绑定已取消。", -1, "", "设备未绑定到此账号", "如果需要连接这台设备，请重新发起绑定。"],
+  }[status];
+  if (copy) state(...copy);
+  else {
+    state("暂时无法确认状态", "请重新检查，或返回节点列表查看设备。", -1, "failed");
+    retryButton.hidden = false;
+  }
+}
+function revealNodeLink(nodeURL) {
+  const url = new URL(nodeURL, location.origin);
+  if (root) url.searchParams.set("root", root);
+  nodeLink.href = url.toString();
+  nodeLink.hidden = false;
+}
+async function waitForNodeOnline(nodeID, nodeURL) {
+  onlineTarget = {nodeID, nodeURL};
+  if (!connectionStarted) {
+    connectionStarted = Date.now();
+    state("绑定已确认", "正在等待设备完成连接。", 2, "", nodeName.value || "你的节点", "已确认绑定，正在等待节点连接…");
+  }
+  try {
+    const nodes = await Relay.request("/api/nodes", {}, true);
+    if (!Array.isArray(nodes)) throw new Error("invalid_response");
+    const node = nodes.find(item => String(item.id || "") === String(nodeID));
+    errorElement.textContent = "";
+    retryButton.hidden = true;
+    if (node && node.status === "online") {
+      state("节点已连接", "绑定完成，可以开始工作了。", 3, "online", node.name || nodeName.value || "你的节点", "设备在线，随时可以进入节点。");
+      revealNodeLink(nodeURL);
+      return;
+    }
+    if (Date.now() - connectionStarted >= 15000) {
+      const waitingMessage = "绑定已完成，设备仍在连接。请保持设备上的 MindFS 运行，本页会自动更新。";
+      const detail = document.getElementById("state-description");
+      if (detail.textContent !== waitingMessage) detail.textContent = waitingMessage;
+    }
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    errorElement.textContent = "暂时无法获取连接状态，正在自动重试。你也可以返回节点列表查看。";
+  }
+  schedule(() => waitForNodeOnline(nodeID, nodeURL), 1500);
+}
+async function status() {
+  clearTimeout(timer);
+  errorElement.textContent = "";
+  retryButton.hidden = true;
+  if (!code) {
+    state("缺少绑定链接", "请从运行 MindFS 的设备发起绑定，并打开完整的绑定链接。", -1, "failed");
+    return;
+  }
+  try {
+    const query = new URLSearchParams({code});
+    if (hintedName) query.set("node_name", hintedName);
+    if (root) query.set("root", root);
+    const body = await Relay.request("/api/bind/status?" + query, {}, true);
+    if (body.node_name && !nodeName.value) nodeName.value = body.node_name;
+    if (body.status === "waiting_for_device") {
+      state("等待设备请求", "请保持设备上的 MindFS 运行。", 0, "", "正在等待设备", "检测到设备请求后，本页会自动进入确认步骤。");
+      schedule(status, 1500);
+    } else if (body.status === "pending") {
+      state("确认绑定设备", "为节点命名，将它绑定到你的账号。", 1);
+      confirmForm.hidden = false;
+    } else {
+      terminal(body.status);
+    }
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    state("暂时无法获取状态", "请检查网络后重新尝试。", -1, "failed", "连接暂时中断", "当前无法确认设备状态。网络恢复后，可以重新检查。");
+    errorElement.textContent = Relay.message(error.message);
+    retryButton.hidden = false;
+  }
+}
+async function decide(action) {
+  if (deciding) return;
+  if (action === "confirm" && !nodeName.value.trim()) {
+    errorElement.textContent = "请输入节点名称。";
+    nodeName.focus();
+    return;
+  }
+  deciding = true;
+  errorElement.textContent = "";
+  const buttons = [...confirmForm.querySelectorAll("button")];
+  const activeButton = action === "confirm" ? buttons[1] : buttons[0];
+  const restore = Relay.busy(activeButton, "正在提交…");
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const payload = action === "confirm" ? {code, name: nodeName.value.trim()} : {code, action};
+    const body = await Relay.request("/api/bind/confirm", Relay.json("POST", payload), true);
+    confirmForm.hidden = true;
+    if (body.node_id && body.node_url) {
+      await waitForNodeOnline(body.node_id, body.node_url);
+    } else {
+      terminal(body.status);
+    }
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    if (["bind_expired", "bind_revoked", "bind_claimed"].includes(error.message)) {
+      terminal({bind_expired: "expired", bind_revoked: "revoked", bind_claimed: "confirmed"}[error.message]);
+    }
+    errorElement.textContent = Relay.message(error.message);
+  } finally {
+    deciding = false;
+    restore();
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+confirmForm.addEventListener("submit", event => { event.preventDefault(); decide("confirm"); });
+document.getElementById("reject").addEventListener("click", () => decide("reject"));
+retryButton.addEventListener("click", () => {
+  if (onlineTarget) waitForNodeOnline(onlineTarget.nodeID, onlineTarget.nodeURL);
+  else status();
+});
+window.addEventListener("pagehide", () => { stopped = true; clearTimeout(timer); });
+status();
+</script>
+</body>
+</html>

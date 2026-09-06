@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"html/template"
 	"io"
 	"net/http"
 	"strings"
@@ -14,36 +13,6 @@ import (
 )
 
 const userSessionCookie = identity.SessionCookieName
-
-var bindPage = template.Must(template.New("bind").Parse(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MindFS Cloud Relay</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 20px;color:#17202a}h1{font-size:24px}form{display:grid;gap:12px;margin-top:20px}input,button{font:inherit;padding:10px 12px;border:1px solid #aeb6bf;border-radius:6px}button{cursor:pointer;background:#1769aa;color:white;border-color:#1769aa}button.secondary{background:white;color:#922b21;border-color:#922b21}.actions{display:flex;gap:10px}.actions button{flex:1}#message{min-height:24px;color:#566573}.hidden{display:none}
-</style>
-</head>
-<body>
-<h1>MindFS Cloud Relay</h1>
-<p id="message">Checking binding status...</p>
-<form id="confirm" class="hidden">
-<label>Node name <input id="nodeName" required></label>
-<div class="actions"><button type="submit">Confirm</button><button type="button" id="reject" class="secondary">Reject</button></div>
-</form>
-<p><a id="nodeLink" class="hidden">Open node</a></p>
-<script>
-const params=new URLSearchParams(location.search);const code=params.get('code')||'';const root=params.get('root')||'';const hintedName=params.get('node_name')||'';
-const message=document.getElementById('message'),confirmForm=document.getElementById('confirm'),nodeName=document.getElementById('nodeName'),nodeLink=document.getElementById('nodeLink');nodeName.value=hintedName;
-function revealNodeLink(nodeURL){const u=new URL(nodeURL,location.origin);if(root)u.searchParams.set('root',root);nodeLink.href=u;nodeLink.classList.remove('hidden')}
-async function waitForNodeOnline(nodeID,nodeURL){const started=Date.now();message.textContent='Binding confirmed. Waiting for the node to connect...';for(;;){try{const r=await fetch('/api/nodes',{cache:'no-store'});if(r.status===401){location.replace('/login?next='+encodeURIComponent(location.pathname+location.search));return}if(r.ok){const nodes=await r.json();const node=Array.isArray(nodes)?nodes.find(item=>String(item.id||'')===String(nodeID)):null;if(node&&node.status==='online'){revealNodeLink(nodeURL);message.textContent='Binding confirmed. Node is online.';return}}}catch(_){/* Keep polling while the binding page remains open. */}if(Date.now()-started>=15000)message.textContent='Binding confirmed. The node is still connecting. Keep this page open.';await new Promise(resolve=>setTimeout(resolve,1000))}}
-async function status(){const q=new URLSearchParams({code});if(hintedName)q.set('node_name',hintedName);if(root)q.set('root',root);const r=await fetch('/api/bind/status?'+q);if(r.status===401){location.replace('/login?next='+encodeURIComponent(location.pathname+location.search));return}const body=await r.json();if(!r.ok){message.textContent=body.message||body.error;return}if(body.node_name&&!nodeName.value)nodeName.value=body.node_name;if(body.status==='waiting_for_device'){message.textContent='Waiting for the MindFS node...';setTimeout(status,1500);return}if(body.status==='pending'){message.textContent='Node is ready for confirmation.';confirmForm.classList.remove('hidden');return}message.textContent='Binding status: '+body.status;confirmForm.classList.add('hidden')}
-async function decide(action){const payload=action==='confirm'?{code,name:nodeName.value}:{code,action};const r=await fetch('/api/bind/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const body=await r.json();if(!r.ok){message.textContent=body.message||body.error;return}confirmForm.classList.add('hidden');message.textContent='Binding '+body.status+'.';if(body.node_id&&body.node_url)waitForNodeOnline(body.node_id,body.node_url)}
-confirmForm.addEventListener('submit',e=>{e.preventDefault();decide('confirm')});document.getElementById('reject').addEventListener('click',()=>decide('reject'));status();
-</script>
-</body>
-</html>`))
 
 func (a *App) handleBindPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

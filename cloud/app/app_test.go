@@ -81,17 +81,17 @@ func TestBindPageWaitsForConnectorBeforeRevealingNodeLink(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, contract := range []string{
-		"waitForNodeOnline(body.node_id,body.node_url)",
-		"fetch('/api/nodes',{cache:'no-store'})",
-		"node&&node.status==='online'",
-		"Binding confirmed. Waiting for the node to connect...",
-		"Binding confirmed. The node is still connecting. Keep this page open.",
+		"waitForNodeOnline(body.node_id, body.node_url)",
+		"Relay.request(\"/api/nodes\", {}, true)",
+		"node && node.status === \"online\"",
+		"已确认绑定，正在等待节点连接…",
+		"绑定已完成，设备仍在连接。请保持设备上的 MindFS 运行，本页会自动更新。",
 	} {
 		if !strings.Contains(body, contract) {
 			t.Fatalf("bind page missing %q", contract)
 		}
 	}
-	if count := strings.Count(body, "nodeLink.classList.remove('hidden')"); count != 1 {
+	if count := strings.Count(body, "nodeLink.hidden = false"); count != 1 {
 		t.Fatalf("node link reveal count = %d, want 1 online-gated reveal", count)
 	}
 }

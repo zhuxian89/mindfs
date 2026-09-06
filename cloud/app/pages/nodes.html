@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的节点 · MindFS Relay</title>
+  {{template "styles"}}
+</head>
+<body>
+<header class="topbar">
+  {{template "brand"}}
+  <div class="account">
+    <span id="avatar" class="avatar" aria-hidden="true">M</span><p id="user" class="user"></p>
+    <details class="menu account-menu"><summary aria-label="账号操作"><span class="account-label">账号</span>{{template "more-icon"}}</summary><div class="menu-panel"><p id="menu-email" class="menu-email"></p><button id="change-password" type="button">修改密码</button><button id="logout" type="button">退出登录</button></div></details>
+  </div>
+</header>
+<main class="workspace">
+  <div class="section-heading">
+    <div><h1>我的节点</h1><p class="subtext">打开在线设备，继续你的工作。</p><p id="count" class="count">正在加载…</p></div>
+    <div class="route" aria-label="通过 MindFS Relay 访问你的节点">
+      <div class="station"><div class="hub">{{template "node-icon"}}</div>当前浏览器</div><div class="track"></div>
+      <div class="station focus"><div class="hub"><svg class="icon" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="10" height="10" rx="3"/><rect x="19" y="17" width="10" height="10" rx="3"/><path d="M13 10h7a4 4 0 0 1 4 4v3M19 22h-7a4 4 0 0 1-4-4v-3"/></svg></div>MindFS Relay</div><div class="track"></div>
+      <div class="station"><div class="hub">{{template "node-icon"}}</div>你的节点</div>
+    </div>
+  </div>
+  <section class="node-board" aria-label="已绑定的设备">
+    <div id="load-notice" class="load-notice" hidden><div class="notice error"><p id="load-error" role="alert"></p><button type="button" data-refresh>重新加载</button></div></div>
+    <div id="list-heading" class="list-heading" aria-hidden="true"><span>节点</span><span>连接状态</span><span>最近连接</span><span>访问节点</span></div>
+    <ul id="nodes" class="nodes" aria-label="节点列表" aria-busy="true">
+      <li class="loading-row" aria-hidden="true"><span class="skeleton"></span><span class="skeleton short"></span></li>
+      <li class="loading-row" aria-hidden="true"><span class="skeleton"></span><span class="skeleton short"></span></li>
+    </ul>
+  </section>
+  <p id="error" class="notice error" role="alert"></p>
+  <p id="hint" class="notice success" role="status"></p>
+  <div class="list-tools"><div class="help"><span>状态每 15 秒自动更新</span><span>在节点菜单中重命名或删除设备</span></div><button id="refresh" class="quiet" type="button" aria-label="刷新列表">{{template "refresh-icon"}}<span class="refresh-label">刷新列表</span></button></div>
+  <div class="list-footer"><span>MindFS Relay</span><span id="updated" role="status"></span></div>
+  {{template "noscript"}}
+</main>
+<template id="node-template">
+  <li class="node">
+    <div class="node-main">
+      <div class="node-icon">{{template "node-icon"}}</div>
+      <div class="node-title"><a class="node-name"></a><p class="node-id"></p></div>
+      <details class="menu node-menu"><summary aria-label="节点操作">{{template "more-icon"}}</summary><div class="menu-panel"><button class="rename" type="button">重命名</button><button class="danger remove" type="button">删除节点</button></div></details>
+    </div>
+    <div class="node-state"><span class="status"></span><span class="last-seen"></span></div>
+    <a class="button open-node"><span class="open-label">打开</span>{{template "arrow-icon"}}</a>
+  </li>
+</template>
+<template id="empty-template"><li class="empty"><div class="node-icon">{{template "node-icon"}}</div><h2>还没有绑定节点</h2><p>在运行 MindFS 的设备上发起 Relay 绑定，再打开生成的绑定链接。<br>完成后，设备会自动出现在这里。</p><button type="button" data-refresh>刷新列表</button></li></template>
+<dialog id="rename-dialog" aria-labelledby="rename-title" aria-describedby="rename-description">
+  <div class="dialog-heading"><h2 id="rename-title">重命名节点</h2><button class="close-button" type="button" data-close aria-label="关闭">{{template "close-icon"}}</button></div><p id="rename-description" class="subtext">为设备取一个容易辨认的名称。</p>
+  <form class="form">
+    <div class="field"><label for="rename-name">节点名称</label><input id="rename-name" name="name" autocomplete="off" required autofocus></div>
+    <p class="notice error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" data-close>取消</button><button type="submit" class="primary">保存名称</button></div>
+  </form>
+</dialog>
+<dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
+  <div class="dialog-heading"><h2 id="delete-title">删除节点？</h2><button class="close-button" type="button" data-close aria-label="关闭">{{template "close-icon"}}</button></div><p id="delete-description" class="subtext">删除后，设备将断开 Relay 连接。重新访问需要再次绑定。</p>
+  <div class="delete-target">{{template "node-icon"}}<div><strong id="delete-name"></strong><p id="delete-id" class="node-id"></p></div></div>
+  <form class="form"><p class="notice error" role="alert"></p><div class="dialog-actions"><button type="button" data-close autofocus>取消</button><button type="submit" class="danger-fill">删除节点</button></div></form>
+</dialog>
+<dialog id="password-dialog" aria-labelledby="password-title" aria-describedby="password-description">
+  <div class="dialog-heading"><h2 id="password-title">修改密码</h2><button class="close-button" type="button" data-close aria-label="关闭">{{template "close-icon"}}</button></div><p id="password-description" class="subtext">验证当前密码，设置新的 Relay 密码。</p>
+  <form class="form">
+    <div class="field"><label for="current-password">当前密码</label><input id="current-password" name="current_password" type="password" placeholder="输入当前密码" autocomplete="current-password" minlength="8" maxlength="128" required autofocus></div>
+    <div class="field"><label for="new-password">新密码</label><input id="new-password" name="new_password" type="password" placeholder="8–128 个字符" autocomplete="new-password" minlength="8" maxlength="128" required></div>
+    <div class="field"><label for="confirm-password">确认新密码</label><input id="confirm-password" name="confirm_password" type="password" placeholder="再次输入新密码" autocomplete="new-password" minlength="8" maxlength="128" required></div>
+    <p class="notice error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" data-close>取消</button><button type="submit" class="primary">保存密码</button></div>
+  </form>
+</dialog>
+{{template "helpers"}}
+<script>
+const nodesElement = document.getElementById("nodes");
+const errorElement = document.getElementById("error");
+const hintElement = document.getElementById("hint");
+const loadError = document.getElementById("load-error");
+const refreshButton = document.getElementById("refresh");
+const rows = new Map();
+let loaded = false;
+let pendingLoad = null;
+function nodeURL(node) { return "/n/" + encodeURIComponent(String(node.id || "").trim()) + "/"; }
+function relativeTime(value) {
+  if (!value) return "从未连接";
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(elapsed)) return "时间未知";
+  if (elapsed < 60000) return "刚刚";
+  if (elapsed < 3600000) return Math.floor(elapsed / 60000) + " 分钟前";
+  if (elapsed < 86400000) return Math.floor(elapsed / 3600000) + " 小时前";
+  return Math.floor(elapsed / 86400000) + " 天前";
+}
+function syncLauncherNodes(nodes) {
+  const payload = nodes.map(node => ({name: String(node.name || "").trim(), url: new URL(nodeURL(node), location.origin).toString()})).filter(node => node.name && node.url);
+  if (!payload.length) return;
+  try {
+    if (window.MindFSLauncherNodeSync && typeof window.MindFSLauncherNodeSync.storeRelayNodes === "function") {
+      window.MindFSLauncherNodeSync.storeRelayNodes(JSON.stringify(payload));
+      return;
+    }
+    const plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LauncherNodeSync;
+    if (plugin && typeof plugin.storeRelayNodes === "function") {
+      Promise.resolve(plugin.storeRelayNodes({nodes: payload})).catch(() => {});
+    }
+  } catch {}
+}
+function render(nodes) {
+  document.getElementById("count").textContent = nodes.filter(node => node.status === "online").length + " 台在线　/　共 " + nodes.length + " 台设备";
+  document.getElementById("list-heading").hidden = !nodes.length;
+  const ids = new Set(nodes.map(node => node.id));
+  for (const [id, row] of rows) {
+    if (!ids.has(id)) { row.remove(); rows.delete(id); }
+  }
+  nodesElement.querySelectorAll(".empty, .loading-row").forEach(element => element.remove());
+  if (!nodes.length) {
+    nodesElement.append(document.getElementById("empty-template").content.cloneNode(true));
+    return;
+  }
+  nodes.forEach((node, index) => {
+    let row = rows.get(node.id);
+    if (!row) {
+      row = document.getElementById("node-template").content.firstElementChild.cloneNode(true);
+      rows.set(node.id, row);
+      row.querySelector(".rename").addEventListener("click", () => openNodeDialog("rename", row.node, row.querySelector("summary")));
+      row.querySelector(".remove").addEventListener("click", () => openNodeDialog("delete", row.node, row.querySelector("summary")));
+      for (const link of row.querySelectorAll("a")) {
+        link.addEventListener("click", event => {
+          if (row.node.status !== "online") {
+            event.preventDefault();
+            hintElement.textContent = "";
+            errorElement.textContent = "节点当前离线。请在设备上启动 MindFS，连接后再打开。";
+          }
+        });
+      }
+    }
+    row.node = node;
+    const name = String(node.name || node.id || "未命名节点");
+    const online = node.status === "online";
+    row.classList.toggle("offline", !online);
+    row.querySelector("summary").setAttribute("aria-label", "节点操作：" + name);
+    row.querySelector(".open-label").textContent = online ? "打开" : "离线";
+    const link = row.querySelector(".node-name");
+    link.textContent = name;
+    link.classList.toggle("offline", !online);
+    for (const anchor of row.querySelectorAll("a")) {
+      anchor.href = nodeURL(node);
+      anchor.setAttribute("aria-disabled", String(!online));
+    }
+    row.querySelector(".open-node").setAttribute("aria-label", "打开节点：" + name + (online ? "" : "（离线）"));
+    row.querySelector(".rename").setAttribute("aria-label", "重命名：" + name);
+    row.querySelector(".remove").setAttribute("aria-label", "删除：" + name);
+    const status = row.querySelector(".status");
+    status.textContent = online ? "在线" : "离线";
+    status.classList.toggle("online", online);
+    row.querySelector(".node-id").textContent = String(node.id || "");
+    const lastSeen = row.querySelector(".last-seen");
+    lastSeen.textContent = node.last_seen_at ? relativeTime(node.last_seen_at) : "从未连接";
+    lastSeen.title = node.last_seen_at && Number.isFinite(Date.parse(node.last_seen_at)) ? new Date(node.last_seen_at).toLocaleString() : "";
+    // Reuse rows so background refresh does not discard keyboard focus.
+    if (nodesElement.children[index] !== row) nodesElement.insertBefore(row, nodesElement.children[index] || null);
+  });
+}
+function api(path, init) { return Relay.request(path, init, true); }
+function load() {
+  if (!pendingLoad) pendingLoad = loadNodes().finally(() => { pendingLoad = null; });
+  return pendingLoad;
+}
+async function loadNodes() {
+  refreshButton.disabled = true;
+  refreshButton.setAttribute("aria-busy", "true");
+  try {
+    const nodes = await api("/api/nodes");
+    if (!Array.isArray(nodes)) throw new Error("invalid_response");
+    syncLauncherNodes(nodes);
+    render(nodes);
+    loaded = true;
+    loadError.textContent = "";
+    document.getElementById("load-notice").hidden = true;
+    document.getElementById("updated").textContent = "更新于 " + new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  } catch (error) {
+    if (error.message !== "unauthorized") {
+      document.getElementById("load-notice").hidden = false;
+      loadError.textContent = loaded ? "更新失败，当前显示上次的节点状态。请检查网络后刷新列表。" : "节点列表加载失败，请检查网络后刷新列表。";
+      if (!loaded) {
+        nodesElement.replaceChildren();
+        document.getElementById("list-heading").hidden = true;
+        document.getElementById("count").textContent = "暂时无法读取";
+      }
+    }
+  } finally {
+    nodesElement.setAttribute("aria-busy", "false");
+    refreshButton.disabled = false;
+    refreshButton.removeAttribute("aria-busy");
+  }
+}
+function openNodeDialog(kind, node, trigger) {
+  const dialog = document.getElementById(kind + "-dialog");
+  dialog.node = node;
+  dialog.returnFocus = trigger;
+  closeMenus();
+  if (kind === "rename") dialog.querySelector("input").value = String(node.name || "");
+  else {
+    document.getElementById("delete-name").textContent = String(node.name || node.id);
+    document.getElementById("delete-id").textContent = String(node.id || "");
+  }
+  dialog.showModal();
+  if (kind === "rename") dialog.querySelector("input").select();
+}
+for (const dialog of document.querySelectorAll("dialog")) {
+  const form = dialog.querySelector("form");
+  const error = dialog.querySelector('[role="alert"]');
+  for (const button of dialog.querySelectorAll("[data-close]")) {
+    button.addEventListener("click", () => { if (!dialog.submitting) dialog.close(); });
+  }
+  dialog.addEventListener("cancel", event => { if (dialog.submitting) event.preventDefault(); });
+  dialog.addEventListener("close", () => {
+    form.reset();
+    error.textContent = "";
+    form.querySelectorAll("[aria-invalid]").forEach(input => input.removeAttribute("aria-invalid"));
+    dialog.node = null;
+    if (dialog.returnFocus?.isConnected) dialog.returnFocus.focus();
+  });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (dialog.submitting) return;
+    error.textContent = "";
+    form.querySelectorAll("[aria-invalid]").forEach(input => input.removeAttribute("aria-invalid"));
+    const data = Object.fromEntries(new FormData(form));
+    if (dialog.id === "rename-dialog" && !data.name.trim()) {
+      error.textContent = "节点名称不能为空。";
+      form.elements.name.focus();
+      return;
+    }
+    if (dialog.id === "password-dialog" && data.new_password !== data.confirm_password) {
+      error.textContent = "两次密码输入不一致，请重新确认。";
+      form.elements.confirm_password.focus();
+      return;
+    }
+    dialog.submitting = true;
+    dialog.querySelectorAll("[data-close]").forEach(button => { button.disabled = true; });
+    const restore = Relay.busy(form.querySelector('[type="submit"]'), "正在提交…");
+    try {
+      if (dialog.id === "password-dialog") {
+        await api("/api/auth/password/change", Relay.json("POST", {current_password: data.current_password, new_password: data.new_password}));
+        hintElement.textContent = "密码已修改。";
+      } else {
+        const path = "/api/nodes/" + encodeURIComponent(dialog.node.id);
+        if (dialog.id === "rename-dialog") await api(path, Relay.json("PATCH", {name: data.name.trim()}));
+        else await api(path, {method: "DELETE"});
+        hintElement.textContent = dialog.id === "rename-dialog" ? "节点名称已更新。" : "节点已删除。";
+      }
+      errorElement.textContent = "";
+      dialog.close();
+      if (dialog.id !== "password-dialog") {
+        // Finish any older background read before fetching the mutation result.
+        await pendingLoad;
+        await load();
+        if (dialog.id === "delete-dialog") refreshButton.focus();
+      }
+    } catch (failure) {
+      if (dialog.id === "password-dialog" && ["invalid_credentials", "invalid_current_password"].includes(failure.message)) {
+        form.elements.current_password.setAttribute("aria-invalid", "true");
+      }
+      error.textContent = dialog.id === "password-dialog" && failure.message === "invalid_credentials"
+        ? "当前密码错误，请重新输入。" : Relay.message(failure.message);
+    } finally {
+      dialog.submitting = false;
+      dialog.querySelectorAll("[data-close]").forEach(button => { button.disabled = false; });
+      restore();
+    }
+  });
+}
+function closeMenus(except) {
+  document.querySelectorAll(".menu[open]").forEach(menu => { if (menu !== except) menu.open = false; });
+}
+document.addEventListener("click", event => {
+  closeMenus(event.target.closest(".menu"));
+  if (event.target.closest("[data-refresh]")) load();
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
+  const menu = document.querySelector(".menu[open]");
+  if (menu) { menu.open = false; menu.querySelector("summary").focus(); }
+});
+refreshButton.addEventListener("click", load);
+document.getElementById("change-password").addEventListener("click", () => {
+  const dialog = document.getElementById("password-dialog");
+  dialog.returnFocus = document.querySelector(".account-menu summary");
+  closeMenus();
+  dialog.showModal();
+});
+document.getElementById("logout").addEventListener("click", async event => {
+  const restore = Relay.busy(event.currentTarget, "正在退出…");
+  try { await api("/api/auth/logout", {method: "POST"}); location.replace("/login"); }
+  catch (error) { errorElement.textContent = Relay.message(error.message); restore(); }
+});
+api("/api/auth/me").then(user => {
+  const name = user.email || user.name || "";
+  document.getElementById("user").textContent = name;
+  document.getElementById("menu-email").textContent = name;
+  document.getElementById("avatar").textContent = name.slice(0, 1).toUpperCase() || "M";
+}).catch(() => {});
+load();
+window.setInterval(load,15000);
+</script>
+</body>
+</html>

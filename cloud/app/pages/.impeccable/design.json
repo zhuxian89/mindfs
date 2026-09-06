@@ -1,0 +1,614 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-06T22:11:48+00:00",
+  "title": "Design System: MindFS Relay · C 松绿信息板",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "浅绿页底",
+        "tonalRamp": [
+          "oklch(15.00% 0.00901 134.87)",
+          "oklch(26.43% 0.00901 134.87)",
+          "oklch(37.86% 0.00901 134.87)",
+          "oklch(49.29% 0.00901 134.87)",
+          "oklch(60.71% 0.00901 134.87)",
+          "oklch(72.14% 0.00901 134.87)",
+          "oklch(83.57% 0.00901 134.87)",
+          "oklch(95.00% 0.00901 134.87)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "冷白内容",
+        "tonalRamp": [
+          "oklch(15.00% 0.00665 115.70)",
+          "oklch(26.43% 0.00665 115.70)",
+          "oklch(37.86% 0.00665 115.70)",
+          "oklch(49.29% 0.00665 115.70)",
+          "oklch(60.71% 0.00665 115.70)",
+          "oklch(72.14% 0.00665 115.70)",
+          "oklch(83.57% 0.00665 115.70)",
+          "oklch(95.00% 0.00665 115.70)"
+        ]
+      },
+      "pine": {
+        "role": "primary",
+        "displayName": "松绿标题",
+        "tonalRamp": [
+          "oklch(15.00% 0.05742 165.75)",
+          "oklch(26.43% 0.05742 165.75)",
+          "oklch(37.86% 0.05742 165.75)",
+          "oklch(49.29% 0.05742 165.75)",
+          "oklch(60.71% 0.05742 165.75)",
+          "oklch(72.14% 0.05742 165.75)",
+          "oklch(83.57% 0.05742 165.75)",
+          "oklch(95.00% 0.05742 165.75)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "text",
+        "tonalRamp": [
+          "oklch(15.00% 0.04789 170.25)",
+          "oklch(26.43% 0.04789 170.25)",
+          "oklch(37.86% 0.04789 170.25)",
+          "oklch(49.29% 0.04789 170.25)",
+          "oklch(60.71% 0.04789 170.25)",
+          "oklch(72.14% 0.04789 170.25)",
+          "oklch(83.57% 0.04789 170.25)",
+          "oklch(95.00% 0.04789 170.25)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.05977 137.57)",
+          "oklch(26.43% 0.05977 137.57)",
+          "oklch(37.86% 0.05977 137.57)",
+          "oklch(49.29% 0.05977 137.57)",
+          "oklch(60.71% 0.05977 137.57)",
+          "oklch(72.14% 0.05977 137.57)",
+          "oklch(83.57% 0.05977 137.57)",
+          "oklch(95.00% 0.05977 137.57)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "line",
+        "tonalRamp": [
+          "oklch(15.00% 0.02402 133.47)",
+          "oklch(26.43% 0.02402 133.47)",
+          "oklch(37.86% 0.02402 133.47)",
+          "oklch(49.29% 0.02402 133.47)",
+          "oklch(60.71% 0.02402 133.47)",
+          "oklch(72.14% 0.02402 133.47)",
+          "oklch(83.57% 0.02402 133.47)",
+          "oklch(95.00% 0.02402 133.47)"
+        ]
+      },
+      "input": {
+        "role": "neutral",
+        "displayName": "input",
+        "tonalRamp": [
+          "oklch(15.00% 0.00537 95.10)",
+          "oklch(26.43% 0.00537 95.10)",
+          "oklch(37.86% 0.00537 95.10)",
+          "oklch(49.29% 0.00537 95.10)",
+          "oklch(60.71% 0.00537 95.10)",
+          "oklch(72.14% 0.00537 95.10)",
+          "oklch(83.57% 0.00537 95.10)",
+          "oklch(95.00% 0.00537 95.10)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.06975 159.04)",
+          "oklch(26.43% 0.06975 159.04)",
+          "oklch(37.86% 0.06975 159.04)",
+          "oklch(49.29% 0.06975 159.04)",
+          "oklch(60.71% 0.06975 159.04)",
+          "oklch(72.14% 0.06975 159.04)",
+          "oklch(83.57% 0.06975 159.04)",
+          "oklch(95.00% 0.06975 159.04)"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "primary-hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.05742 165.75)",
+          "oklch(26.43% 0.05742 165.75)",
+          "oklch(37.86% 0.05742 165.75)",
+          "oklch(49.29% 0.05742 165.75)",
+          "oklch(60.71% 0.05742 165.75)",
+          "oklch(72.14% 0.05742 165.75)",
+          "oklch(83.57% 0.05742 165.75)",
+          "oklch(95.00% 0.05742 165.75)"
+        ]
+      },
+      "mint": {
+        "role": "primary",
+        "displayName": "mint",
+        "tonalRamp": [
+          "oklch(15.00% 0.02749 129.82)",
+          "oklch(26.43% 0.02749 129.82)",
+          "oklch(37.86% 0.02749 129.82)",
+          "oklch(49.29% 0.02749 129.82)",
+          "oklch(60.71% 0.02749 129.82)",
+          "oklch(72.14% 0.02749 129.82)",
+          "oklch(83.57% 0.02749 129.82)",
+          "oklch(95.00% 0.02749 129.82)"
+        ]
+      },
+      "mint-hover": {
+        "role": "primary",
+        "displayName": "mint-hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.04836 130.80)",
+          "oklch(26.43% 0.04836 130.80)",
+          "oklch(37.86% 0.04836 130.80)",
+          "oklch(49.29% 0.04836 130.80)",
+          "oklch(60.71% 0.04836 130.80)",
+          "oklch(72.14% 0.04836 130.80)",
+          "oklch(83.57% 0.04836 130.80)",
+          "oklch(95.00% 0.04836 130.80)"
+        ]
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "砖红警示",
+        "tonalRamp": [
+          "oklch(15.00% 0.10494 33.34)",
+          "oklch(26.43% 0.10494 33.34)",
+          "oklch(37.86% 0.10494 33.34)",
+          "oklch(49.29% 0.10494 33.34)",
+          "oklch(60.71% 0.10494 33.34)",
+          "oklch(72.14% 0.10494 33.34)",
+          "oklch(83.57% 0.10494 33.34)",
+          "oklch(95.00% 0.10494 33.34)"
+        ]
+      },
+      "danger-bg": {
+        "role": "neutral",
+        "displayName": "danger-bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01864 57.21)",
+          "oklch(26.43% 0.01864 57.21)",
+          "oklch(37.86% 0.01864 57.21)",
+          "oklch(49.29% 0.01864 57.21)",
+          "oklch(60.71% 0.01864 57.21)",
+          "oklch(72.14% 0.01864 57.21)",
+          "oklch(83.57% 0.01864 57.21)",
+          "oklch(95.00% 0.01864 57.21)"
+        ]
+      },
+      "on-pine": {
+        "role": "neutral",
+        "displayName": "on-pine",
+        "tonalRamp": [
+          "oklch(15.00% 0.01728 113.82)",
+          "oklch(26.43% 0.01728 113.82)",
+          "oklch(37.86% 0.01728 113.82)",
+          "oklch(49.29% 0.01728 113.82)",
+          "oklch(60.71% 0.01728 113.82)",
+          "oklch(72.14% 0.01728 113.82)",
+          "oklch(83.57% 0.01728 113.82)",
+          "oklch(95.00% 0.01728 113.82)"
+        ]
+      },
+      "on-primary": {
+        "role": "neutral",
+        "displayName": "on-primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.01350 120.27)",
+          "oklch(26.43% 0.01350 120.27)",
+          "oklch(37.86% 0.01350 120.27)",
+          "oklch(49.29% 0.01350 120.27)",
+          "oklch(60.71% 0.01350 120.27)",
+          "oklch(72.14% 0.01350 120.27)",
+          "oklch(83.57% 0.01350 120.27)",
+          "oklch(95.00% 0.01350 120.27)"
+        ]
+      },
+      "button-text": {
+        "role": "neutral",
+        "displayName": "button-text",
+        "tonalRamp": [
+          "oklch(15.00% 0.07758 140.93)",
+          "oklch(26.43% 0.07758 140.93)",
+          "oklch(37.86% 0.07758 140.93)",
+          "oklch(49.29% 0.07758 140.93)",
+          "oklch(60.71% 0.07758 140.93)",
+          "oklch(72.14% 0.07758 140.93)",
+          "oklch(83.57% 0.07758 140.93)",
+          "oklch(95.00% 0.07758 140.93)"
+        ]
+      },
+      "button-hover": {
+        "role": "neutral",
+        "displayName": "button-hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.02248 126.23)",
+          "oklch(26.43% 0.02248 126.23)",
+          "oklch(37.86% 0.02248 126.23)",
+          "oklch(49.29% 0.02248 126.23)",
+          "oklch(60.71% 0.02248 126.23)",
+          "oklch(72.14% 0.02248 126.23)",
+          "oklch(83.57% 0.02248 126.23)",
+          "oklch(95.00% 0.02248 126.23)"
+        ]
+      },
+      "button-active": {
+        "role": "neutral",
+        "displayName": "button-active",
+        "tonalRamp": [
+          "oklch(15.00% 0.03045 129.76)",
+          "oklch(26.43% 0.03045 129.76)",
+          "oklch(37.86% 0.03045 129.76)",
+          "oklch(49.29% 0.03045 129.76)",
+          "oklch(60.71% 0.03045 129.76)",
+          "oklch(72.14% 0.03045 129.76)",
+          "oklch(83.57% 0.03045 129.76)",
+          "oklch(95.00% 0.03045 129.76)"
+        ]
+      },
+      "danger-fill": {
+        "role": "neutral",
+        "displayName": "danger-fill",
+        "tonalRamp": [
+          "oklch(15.00% 0.10215 32.90)",
+          "oklch(26.43% 0.10215 32.90)",
+          "oklch(37.86% 0.10215 32.90)",
+          "oklch(49.29% 0.10215 32.90)",
+          "oklch(60.71% 0.10215 32.90)",
+          "oklch(72.14% 0.10215 32.90)",
+          "oklch(83.57% 0.10215 32.90)",
+          "oklch(95.00% 0.10215 32.90)"
+        ]
+      },
+      "danger-fill-hover": {
+        "role": "neutral",
+        "displayName": "danger-fill-hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.08989 33.13)",
+          "oklch(26.43% 0.08989 33.13)",
+          "oklch(37.86% 0.08989 33.13)",
+          "oklch(49.29% 0.08989 33.13)",
+          "oklch(60.71% 0.08989 33.13)",
+          "oklch(72.14% 0.08989 33.13)",
+          "oklch(83.57% 0.08989 33.13)",
+          "oklch(95.00% 0.08989 33.13)"
+        ]
+      },
+      "on-danger": {
+        "role": "neutral",
+        "displayName": "on-danger",
+        "tonalRamp": [
+          "oklch(15.00% 0.01344 60.57)",
+          "oklch(26.43% 0.01344 60.57)",
+          "oklch(37.86% 0.01344 60.57)",
+          "oklch(49.29% 0.01344 60.57)",
+          "oklch(60.71% 0.01344 60.57)",
+          "oklch(72.14% 0.01344 60.57)",
+          "oklch(83.57% 0.01344 60.57)",
+          "oklch(95.00% 0.01344 60.57)"
+        ]
+      },
+      "disabled-bg": {
+        "role": "neutral",
+        "displayName": "disabled-bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.02807 131.82)",
+          "oklch(26.43% 0.02807 131.82)",
+          "oklch(37.86% 0.02807 131.82)",
+          "oklch(49.29% 0.02807 131.82)",
+          "oklch(60.71% 0.02807 131.82)",
+          "oklch(72.14% 0.02807 131.82)",
+          "oklch(83.57% 0.02807 131.82)",
+          "oklch(95.00% 0.02807 131.82)"
+        ]
+      },
+      "disabled-text": {
+        "role": "neutral",
+        "displayName": "disabled-text",
+        "tonalRamp": [
+          "oklch(15.00% 0.05321 136.71)",
+          "oklch(26.43% 0.05321 136.71)",
+          "oklch(37.86% 0.05321 136.71)",
+          "oklch(49.29% 0.05321 136.71)",
+          "oklch(60.71% 0.05321 136.71)",
+          "oklch(72.14% 0.05321 136.71)",
+          "oklch(83.57% 0.05321 136.71)",
+          "oklch(95.00% 0.05321 136.71)"
+        ]
+      },
+      "online": {
+        "role": "neutral",
+        "displayName": "在线文字",
+        "tonalRamp": [
+          "oklch(15.00% 0.08266 145.71)",
+          "oklch(26.43% 0.08266 145.71)",
+          "oklch(37.86% 0.08266 145.71)",
+          "oklch(49.29% 0.08266 145.71)",
+          "oklch(60.71% 0.08266 145.71)",
+          "oklch(72.14% 0.08266 145.71)",
+          "oklch(83.57% 0.08266 145.71)",
+          "oklch(95.00% 0.08266 145.71)"
+        ]
+      },
+      "online-bg": {
+        "role": "neutral",
+        "displayName": "online-bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.02497 124.27)",
+          "oklch(26.43% 0.02497 124.27)",
+          "oklch(37.86% 0.02497 124.27)",
+          "oklch(49.29% 0.02497 124.27)",
+          "oklch(60.71% 0.02497 124.27)",
+          "oklch(72.14% 0.02497 124.27)",
+          "oklch(83.57% 0.02497 124.27)",
+          "oklch(95.00% 0.02497 124.27)"
+        ]
+      },
+      "offline": {
+        "role": "neutral",
+        "displayName": "offline",
+        "tonalRamp": [
+          "oklch(15.00% 0.05357 135.73)",
+          "oklch(26.43% 0.05357 135.73)",
+          "oklch(37.86% 0.05357 135.73)",
+          "oklch(49.29% 0.05357 135.73)",
+          "oklch(60.71% 0.05357 135.73)",
+          "oklch(72.14% 0.05357 135.73)",
+          "oklch(83.57% 0.05357 135.73)",
+          "oklch(95.00% 0.05357 135.73)"
+        ]
+      },
+      "offline-bg": {
+        "role": "neutral",
+        "displayName": "offline-bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.01104 123.46)",
+          "oklch(26.43% 0.01104 123.46)",
+          "oklch(37.86% 0.01104 123.46)",
+          "oklch(49.29% 0.01104 123.46)",
+          "oklch(60.71% 0.01104 123.46)",
+          "oklch(72.14% 0.01104 123.46)",
+          "oklch(83.57% 0.01104 123.46)",
+          "oklch(95.00% 0.01104 123.46)"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "success",
+        "tonalRamp": [
+          "oklch(15.00% 0.09690 144.34)",
+          "oklch(26.43% 0.09690 144.34)",
+          "oklch(37.86% 0.09690 144.34)",
+          "oklch(49.29% 0.09690 144.34)",
+          "oklch(60.71% 0.09690 144.34)",
+          "oklch(72.14% 0.09690 144.34)",
+          "oklch(83.57% 0.09690 144.34)",
+          "oklch(95.00% 0.09690 144.34)"
+        ]
+      },
+      "success-bg": {
+        "role": "neutral",
+        "displayName": "success-bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.02625 123.43)",
+          "oklch(26.43% 0.02625 123.43)",
+          "oklch(37.86% 0.02625 123.43)",
+          "oklch(49.29% 0.02625 123.43)",
+          "oklch(60.71% 0.02625 123.43)",
+          "oklch(72.14% 0.02625 123.43)",
+          "oklch(83.57% 0.02625 123.43)",
+          "oklch(95.00% 0.02625 123.43)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "focus",
+        "tonalRamp": [
+          "oklch(15.00% 0.07992 143.32)",
+          "oklch(26.43% 0.07992 143.32)",
+          "oklch(37.86% 0.07992 143.32)",
+          "oklch(49.29% 0.07992 143.32)",
+          "oklch(60.71% 0.07992 143.32)",
+          "oklch(72.14% 0.07992 143.32)",
+          "oklch(83.57% 0.07992 143.32)",
+          "oklch(95.00% 0.07992 143.32)"
+        ]
+      },
+      "input-focus": {
+        "role": "primary",
+        "displayName": "input-focus",
+        "tonalRamp": [
+          "oklch(15.00% 0.07948 135.13)",
+          "oklch(26.43% 0.07948 135.13)",
+          "oklch(37.86% 0.07948 135.13)",
+          "oklch(49.29% 0.07948 135.13)",
+          "oklch(60.71% 0.07948 135.13)",
+          "oklch(72.14% 0.07948 135.13)",
+          "oklch(83.57% 0.07948 135.13)",
+          "oklch(95.00% 0.07948 135.13)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "节点页标题",
+        "purpose": "桌面节点页主标题；窄屏缩小。"
+      },
+      "headline": {
+        "displayName": "面板标题",
+        "purpose": "账号和绑定页面标题。"
+      },
+      "mono": {
+        "displayName": "节点 ID",
+        "purpose": "可换行的节点标识。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "menu",
+        "value": "0 8px 28px -8px #18372355",
+        "purpose": "浮出菜单的局部层次；主要面板不使用阴影。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-transition",
+        "value": "background-color 160ms ease-out, border-color 160ms ease-out",
+        "purpose": "按钮底色和边框的悬停过渡。"
+      },
+      {
+        "name": "dialog-enter",
+        "value": "dialog-enter 180ms cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "弹窗从 translateY(9px) 到 translateY(0)。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }",
+        "purpose": "减少动态效果偏好下关闭过渡和动画。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop-max",
+        "value": "950px"
+      },
+      {
+        "name": "compact-header-max",
+        "value": "760px"
+      },
+      {
+        "name": "mobile-max",
+        "value": "600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "主按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "确认、保存与表单主操作。",
+      "html": "<div class=\"ds-example-button-primary\"><button type=\"button\" class=\"ds-primary\">确认绑定<svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14m-5-5 5 5-5 5\"/></svg></button></div>",
+      "css": ".ds-example-button-primary { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-primary button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-primary button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-primary button:active { background: #dae5d0; }.ds-example-button-primary button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-primary button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-primary button .ds-icon { width: 18px; height: 18px; }.ds-example-button-primary .ds-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }.ds-example-button-primary .ds-primary { background: var(--primary, #2e6046); border-color: transparent; color: #f9fcf2; min-height: 48px; }.ds-example-button-primary .ds-primary:hover { background: var(--primary-hover, #214d3c); border-color: transparent; }.ds-example-button-primary :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-primary *, .ds-example-button-primary *::before, .ds-example-button-primary *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "次按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "取消、返回与普通辅助操作。",
+      "html": "<div class=\"ds-example-button-secondary\"><button type=\"button\">取消</button></div>",
+      "css": ".ds-example-button-secondary { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-secondary button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-secondary button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-secondary button:active { background: #dae5d0; }.ds-example-button-secondary button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-secondary button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-secondary button .ds-icon { width: 18px; height: 18px; }.ds-example-button-secondary :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-secondary *, .ds-example-button-secondary *::before, .ds-example-button-secondary *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "轻按钮",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "弱化边界的列表辅助操作。",
+      "html": "<div class=\"ds-example-button-quiet\"><button type=\"button\" class=\"ds-quiet\">刷新列表</button></div>",
+      "css": ".ds-example-button-quiet { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-quiet button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-quiet button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-quiet button:active { background: #dae5d0; }.ds-example-button-quiet button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-quiet button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-quiet button .ds-icon { width: 18px; height: 18px; }.ds-example-button-quiet .ds-quiet { border-color: transparent; color: var(--muted, #58714f); }.ds-example-button-quiet .ds-quiet:hover { border-color: transparent; }.ds-example-button-quiet :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-quiet *, .ds-example-button-quiet *::before, .ds-example-button-quiet *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "危险次按钮",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "绑定确认中的拒绝操作。",
+      "html": "<div class=\"ds-example-button-danger\"><button type=\"button\" class=\"ds-danger\">拒绝绑定</button></div>",
+      "css": ".ds-example-button-danger { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-danger button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-danger button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-danger button:active { background: #dae5d0; }.ds-example-button-danger button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-danger button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-danger button .ds-icon { width: 18px; height: 18px; }.ds-example-button-danger .ds-danger { color: var(--danger, #934838); border-color: #d7c3b6; }.ds-example-button-danger .ds-danger:hover { background: var(--danger-bg, #f5e8df); border-color: #b67d69; }.ds-example-button-danger :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-danger *, .ds-example-button-danger *::before, .ds-example-button-danger *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "删除确认按钮",
+      "kind": "button",
+      "refersTo": "button-danger-fill",
+      "description": "破坏性操作的最终确认。",
+      "html": "<div class=\"ds-example-button-danger-fill\"><button type=\"button\" class=\"ds-danger-fill\">删除节点</button></div>",
+      "css": ".ds-example-button-danger-fill { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-danger-fill button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-danger-fill button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-danger-fill button:active { background: #dae5d0; }.ds-example-button-danger-fill button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-danger-fill button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-danger-fill button .ds-icon { width: 18px; height: 18px; }.ds-example-button-danger-fill .ds-danger-fill { background: #914839; border-color: transparent; color: #fff6ef; }.ds-example-button-danger-fill .ds-danger-fill:hover { background: #783a2d; border-color: transparent; }.ds-example-button-danger-fill :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-danger-fill *, .ds-example-button-danger-fill *::before, .ds-example-button-danger-fill *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "节点打开按钮",
+      "kind": "button",
+      "refersTo": "button-open",
+      "description": "在线节点访问入口；离线时变灰并阻止导航。",
+      "html": "<div class=\"ds-example-button-open\"><button type=\"button\" class=\"ds-open-node\">打开<svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14m-5-5 5 5-5 5\"/></svg></button></div>",
+      "css": ".ds-example-button-open { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-open button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-open button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-open button:active { background: #dae5d0; }.ds-example-button-open button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-open button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-open button .ds-icon { width: 18px; height: 18px; }.ds-example-button-open .ds-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }.ds-example-button-open .ds-open-node { background: var(--mint, #dfe9d6); border: 0; color: #315c3b; padding: 8px 16px; border-radius: 5px; font-size: 12px; gap: 13px; white-space: nowrap; }.ds-example-button-open .ds-open-node .ds-icon { width: 17px; }.ds-example-button-open .ds-open-node:hover { background: #cddfbe; }.ds-example-button-open .ds-open-node[aria-disabled=\"true\"] { color: #617358; background: #f0f3eb; cursor: not-allowed; }.ds-example-button-open :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-open *, .ds-example-button-open *::before, .ds-example-button-open *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "验证码按钮",
+      "kind": "button",
+      "refersTo": "button-code",
+      "description": "与验证码输入同行，发送后显示重发倒计时。",
+      "html": "<div class=\"ds-example-button-code\"><div class=\"ds-inline\"><span></span><button type=\"button\">发送验证码</button></div></div>",
+      "css": ".ds-example-button-code { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-button-code button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-button-code button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-button-code button:active { background: #dae5d0; }.ds-example-button-code button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-code button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-button-code button .ds-icon { width: 18px; height: 18px; }.ds-example-button-code .ds-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }.ds-example-button-code .ds-inline button { background: #e6eddd; border: 0; padding-inline: 12px; font-size: 12px; white-space: nowrap; }.ds-example-button-code .ds-inline button:hover { background: #d7e3cb; }.ds-example-button-code :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-button-code *, .ds-example-button-code *::before, .ds-example-button-code *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "文本输入",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "可见标签、浅色输入底、独立焦点与错误边框。",
+      "html": "<div class=\"ds-example-input\"><div class=\"ds-field\"><label for=\"ds-node-name\">节点名称</label><input id=\"ds-node-name\" value=\"家里的 Mac\" autocomplete=\"off\"></div></div>",
+      "css": ".ds-example-input { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-input .ds-field { display: grid; gap: 8px; }.ds-example-input label { color: #42623c; font-size: 13px; font-weight: 500; }.ds-example-input input { font: inherit; width: 100%; min-width: 0; min-height: 48px; padding: 11px 13px; border: 1px solid #ccd9c5; border-radius: 6px; background: var(--input, #fffefa); color: #294c32; caret-color: #315d35; line-height: 1.5; }.ds-example-input input:hover { border-color: #a3ba96; }.ds-example-input input:focus { outline: 2px solid #739362; outline-offset: 2px; }.ds-example-input input::placeholder { color: var(--muted, #58714f); opacity: 1; }.ds-example-input input[aria-invalid=\"true\"] { border-color: #b06d58; }.ds-example-input :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (max-width: 600px) { .ds-example-input input { font-size: 16px; padding: 11px 12px; } }\n@media (prefers-reduced-motion: reduce) { .ds-example-input *, .ds-example-input *::before, .ds-example-input *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "账号模式导航",
+      "kind": "nav",
+      "refersTo": "account-mode",
+      "description": "原生按钮式导航；当前项以下划线和 aria-pressed 表示。",
+      "html": "<div class=\"ds-example-account-mode\"><nav class=\"ds-modes\" aria-label=\"账号操作\"><button type=\"button\" aria-pressed=\"true\">登录</button><button type=\"button\" aria-pressed=\"false\">注册</button><button type=\"button\" aria-pressed=\"false\">找回密码</button></nav></div>",
+      "css": ".ds-example-account-mode { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-account-mode button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-account-mode button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-account-mode button:active { background: #dae5d0; }.ds-example-account-mode button:disabled { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-account-mode button:disabled:hover { background: #d8e3d0; color: #677d5e; border-color: transparent; cursor: default; }.ds-example-account-mode button .ds-icon { width: 18px; height: 18px; }.ds-example-account-mode .ds-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 25px; border-bottom: 1px solid var(--line, #d7e1d1); }.ds-example-account-mode .ds-modes button { background: transparent; color: var(--muted, #58714f); font-size: 13px; padding: 0 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; transform: translateY(1px); }.ds-example-account-mode .ds-modes button:hover { color: #285237; background: #edf2e7; }.ds-example-account-mode .ds-modes button[aria-pressed=\"true\"] { color: #285237; border-bottom-color: #285237; }.ds-example-account-mode :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (prefers-reduced-motion: reduce) { .ds-example-account-mode *, .ds-example-account-mode *::before, .ds-example-account-mode *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "节点状态",
+      "kind": "chip",
+      "refersTo": "status-online",
+      "description": "在线与离线使用圆点加文字；展示片段同时显示两种状态。",
+      "html": "<div class=\"ds-example-status-online\"><span class=\"ds-status ds-online\">在线</span> <span class=\"ds-status\">离线</span></div>",
+      "css": ".ds-example-status-online { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-status-online .ds-status { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; line-height: 1.5; font-weight: 550; white-space: nowrap; width: 67px; padding: 5px 9px; border: 1px solid #dbe3d4; border-radius: 4px; color: #5b7051; background: #f1f4ec; }.ds-example-status-online .ds-status::before { content: \"\"; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }.ds-example-status-online .ds-status.ds-online { background: #e9f0de; border-color: #c2d7b8; color: #426f45; }.ds-example-status-online :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (max-width: 600px) { .ds-example-status-online .ds-status { width: 55px; font-size: 10px; gap: 4px; padding: 3px 6px; } .ds-example-status-online .ds-status::before { width: 4px; height: 4px; } }\n@media (prefers-reduced-motion: reduce) { .ds-example-status-online *, .ds-example-status-online *::before, .ds-example-status-online *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "松绿内容面板",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "标题和正文直接相接，主体不使用阴影。",
+      "html": "<div class=\"ds-example-panel\"><section class=\"ds-panel\"><div class=\"ds-panel-head\"><h1>登录 Relay</h1><p class=\"ds-subtext\">访问你已绑定的 MindFS 节点。</p></div><div class=\"ds-panel-body\">账号表单内容</div></section></div>",
+      "css": ".ds-example-panel { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-panel .ds-panel { border-radius: var(--radius, 12px); overflow: hidden; background: var(--paper, #fbfcf7); }.ds-example-panel .ds-panel-head { padding: 30px 32px; background: var(--pine, #214d3c); color: #f2f4e7; }.ds-example-panel .ds-panel-head .ds-subtext { color: #bed0b9; font-size: 13px; line-height: 1.7; margin-top: 9px; }.ds-example-panel .ds-panel-body { padding: 28px 32px 32px; }.ds-example-panel h1 { margin: 0; font-size: 32px; line-height: 1.3; font-weight: 650; letter-spacing: -.03em; text-wrap: balance; }.ds-example-panel p { margin: 0; }.ds-example-panel .ds-subtext { color: var(--muted, #58714f); font-size: 13px; line-height: 1.8; }.ds-example-panel :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (max-width: 600px) { .ds-example-panel .ds-panel-head { padding: 25px; } .ds-example-panel .ds-panel-head h1 { font-size: 29px; } .ds-example-panel .ds-panel-body { padding: 24px; } }\n@media (prefers-reduced-motion: reduce) { .ds-example-panel *, .ds-example-panel *::before, .ds-example-panel *::after { transition: none !important; animation: none !important; } }"
+    },
+    {
+      "name": "节点连续行",
+      "kind": "custom",
+      "refersTo": "node-row",
+      "description": "名称、状态、时间与访问按列排列；原生 details 菜单展示重命名和删除。示例数据不接入业务。",
+      "html": "<div class=\"ds-example-node-row\"><ul class=\"ds-nodes\"><li class=\"ds-node\"><div class=\"ds-node-main\"><div class=\"ds-node-icon\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"12\" rx=\"2\"/><path d=\"M8 20h8M12 16v4M7 8h.01\"/></svg></div><div class=\"ds-node-title\"><a class=\"ds-node-name\" href=\"#ds-device\">家里的 Mac</a><p class=\"ds-node-id\">node-home-mac</p></div><details class=\"ds-menu ds-node-menu\"><summary aria-label=\"节点操作：家里的 Mac\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"5\" cy=\"12\" r=\".8\"/><circle cx=\"12\" cy=\"12\" r=\".8\"/><circle cx=\"19\" cy=\"12\" r=\".8\"/></svg></summary><div class=\"ds-menu-panel\"><button type=\"button\">重命名</button><button class=\"ds-danger\" type=\"button\">删除节点</button></div></details></div><div class=\"ds-node-state\"><span class=\"ds-status ds-online\">在线</span><span class=\"ds-last-seen\">刚刚</span></div><a class=\"ds-button ds-open-node\" href=\"#ds-device\">打开<svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14m-5-5 5 5-5 5\"/></svg></a></li></ul></div>",
+      "css": ".ds-example-node-row { font-family: \"SF Pro Display\", \"PingFang SC\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--text, #21463a); font-size: 15px; line-height: 1.6; }.ds-example-node-row .ds-nodes { list-style: none; padding: 0; margin: 0; }.ds-example-node-row .ds-node { display: grid; grid-template-columns: minmax(0, 1fr) 110px 140px 104px; column-gap: 24px; align-items: center; padding: 25px 14px; border-bottom: 1px solid #e0e7db; }.ds-example-node-row .ds-node:last-child { border-bottom: 0; }.ds-example-node-row .ds-node-main { display: flex; align-items: center; gap: 18px; min-width: 0; }.ds-example-node-row .ds-node-icon { width: 38px; display: flex; justify-content: center; color: #658873; flex: none; }.ds-example-node-row .ds-node-title { min-width: 0; flex: 1; }.ds-example-node-row .ds-node-name { color: var(--text, #21463a); font-size: 22px; line-height: 1.4; font-weight: 550; letter-spacing: -.02em; text-decoration: none; overflow-wrap: anywhere; }.ds-example-node-row .ds-node-name:hover { text-decoration: underline; }.ds-example-node-row .ds-node-id { color: var(--muted, #58714f); font-size: 11px; line-height: 1.7; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }.ds-example-node-row .ds-node-title .ds-node-id { margin-top: 7px; }.ds-example-node-row .ds-node-state { display: contents; }.ds-example-node-row .ds-status { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; line-height: 1.5; font-weight: 550; white-space: nowrap; width: 67px; padding: 5px 9px; border: 1px solid #dbe3d4; border-radius: 4px; color: #5b7051; background: #f1f4ec; }.ds-example-node-row .ds-status::before { content: \"\"; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }.ds-example-node-row .ds-status.ds-online { background: #e9f0de; border-color: #c2d7b8; color: #426f45; }.ds-example-node-row .ds-last-seen { font-size: 13px; color: var(--muted, #58714f); font-variant-numeric: tabular-nums; }.ds-example-node-row .ds-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }.ds-example-node-row p { margin: 0; }.ds-example-node-row .ds-button { -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-node-row .ds-button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-node-row .ds-button:active { background: #dae5d0; }.ds-example-node-row .ds-button .ds-icon { width: 18px; height: 18px; }.ds-example-node-row .ds-open-node { background: var(--mint, #dfe9d6); border: 0; color: #315c3b; padding: 8px 16px; border-radius: 5px; font-size: 12px; gap: 13px; white-space: nowrap; }.ds-example-node-row .ds-open-node .ds-icon { width: 17px; }.ds-example-node-row .ds-open-node:hover { background: #cddfbe; }.ds-example-node-row .ds-menu { position: relative; flex: none; }.ds-example-node-row .ds-menu summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 44px; min-width: 44px; color: #4b6856; border-radius: 6px; }.ds-example-node-row .ds-menu summary::-webkit-details-marker { display: none; }.ds-example-node-row .ds-menu summary:hover { background: #e0e9da; }.ds-example-node-row .ds-menu[open] summary { background: #e0e9da; }.ds-example-node-row .ds-menu summary .ds-icon { width: 18px; height: 18px; }.ds-example-node-row .ds-menu-panel { position: absolute; z-index: 5; top: calc(100% + 3px); right: 0; width: 168px; padding: 6px; border-radius: 8px; background: var(--paper, #fbfcf7); box-shadow: 0 8px 28px -8px #18372355; }.ds-example-node-row .ds-menu-panel button { display: flex; justify-content: flex-start; width: 100%; border: 0; padding: 10px 13px; font-size: 12px; border-radius: 5px; }.ds-example-node-row .ds-menu-panel button.ds-danger { color: var(--danger, #934838); }.ds-example-node-row button { font: inherit; -webkit-tap-highlight-color: transparent; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; border: 1px solid #c8d8bf; border-radius: 6px; background: transparent; color: #42663c; text-decoration: none; font-size: 13px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }.ds-example-node-row button:hover { background: #e8efdf; border-color: #a9bea0; }.ds-example-node-row button:active { background: #dae5d0; }.ds-example-node-row :focus-visible { outline: 2px solid #547d52; outline-offset: 3px; }\n@media (max-width: 950px) { .ds-example-node-row .ds-node { grid-template-columns: minmax(0, 1fr) 82px 94px 90px; column-gap: 16px; } .ds-example-node-row .ds-node-name { font-size: 19px; } } @media (max-width: 600px) { .ds-example-node-row .ds-node { grid-template-columns: minmax(0, 1fr) 74px; padding: 23px 0; gap: 9px 12px; } .ds-example-node-row .ds-node-main { grid-column: 1 / -1; align-items: flex-start; gap: 11px; } .ds-example-node-row .ds-node-main > .ds-node-icon { width: 25px; justify-content: flex-start; padding-top: 4px; } .ds-example-node-row .ds-node-icon .ds-icon { width: 20px; } .ds-example-node-row .ds-node-name { font-size: 17px; } .ds-example-node-row .ds-node-state { grid-column: 1; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; margin-left: 36px; } .ds-example-node-row .ds-status { width: 55px; font-size: 10px; gap: 4px; padding: 3px 6px; } .ds-example-node-row .ds-last-seen { font-size: 11px; } .ds-example-node-row .ds-open-node { grid-column: 2; grid-row: 2; padding: 6px 11px; font-size: 12px; gap: 8px; } .ds-example-node-row .ds-node-menu .ds-menu-panel { width: 145px; } }\n@media (prefers-reduced-motion: reduce) { .ds-example-node-row *, .ds-example-node-row *::before, .ds-example-node-row *::after { transition: none !important; animation: none !important; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "C 松绿信息板",
+    "overview": "松绿标题区、冷白内容区和浅绿页面底构成稳定的任务界面。名称、状态、输入与操作保持清楚的层级；节点使用连续行，电脑便于按列比较，手机便于逐项操作。\n\n本系统仅覆盖 `cloud/app/pages/` 下的 Relay 页面与共享组件。规范由 `shared.html`、`login.html`、`nodes.html`、`bind.html` 的当前实现提取；上方 token 是数值依据，未建立全仓库或上游 Web 的样式约定。",
+    "keyCharacteristics": [
+      "松绿标题区与冷白内容形成明确分区。",
+      "节点列表保持连续行，电脑和手机同等重视。",
+      "轻边框、低圆角与线性图标；状态同时使用文字和颜色。",
+      "菜单承载次要操作，任务反馈留在当前表单或列表附近。"
+    ],
+    "rules": [],
+    "dos": [
+      "Do 沿用松绿标题区、冷白内容与浅绿页底的层次。",
+      "Do 在窄屏保留名称、状态、最近连接和打开操作，允许长名称与 ID 换行。",
+      "Do 保留可见键盘焦点、明确字段标签、提交反馈和关闭后的焦点恢复。"
+    ],
+    "donts": [
+      "Don't 将本范围的节点列表改为独立设备卡片网格。",
+      "Don't 只用圆点或颜色表达在线、离线和错误。",
+      "Don't 让离线节点直接导航，或让异步刷新丢弃正在使用的节点行焦点。"
+    ]
+  }
+}
