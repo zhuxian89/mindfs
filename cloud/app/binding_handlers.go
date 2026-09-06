@@ -13,7 +13,7 @@ import (
 	"mindfs-cloud/internal/store"
 )
 
-const userSessionCookie = "mindfs_cloud_session"
+const userSessionCookie = identity.SessionCookieName
 
 var bindPage = template.Must(template.New("bind").Parse(`<!doctype html>
 <html lang="en">
@@ -61,7 +61,21 @@ func (a *App) handleBindPoll(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "invalid_request", "binding purpose is not supported")
 		return
 	}
+	if err := a.identity.LimitBindingPoll(r.Context(), a.requestSource(r)); err != nil {
+		if errors.Is(err, store.ErrRateLimited) {
+			w.Header().Set("Retry-After", "60")
+			respondError(w, r, http.StatusTooManyRequests, "bind_rate_limited", "binding requests are too frequent")
+		} else {
+			respondError(w, r, http.StatusInternalServerError, "internal_error", "binding rate limit failed")
+		}
+		return
+	}
 	response, err := a.binding.Poll(r.Context(), r.URL.Query().Get("code"), r.Header.Get("X-MindFS-Device-ID"))
+	if errors.Is(err, store.ErrRateLimited) {
+		w.Header().Set("Retry-After", "60")
+		respondError(w, r, http.StatusTooManyRequests, "bind_rate_limited", "binding capacity reached; retry later")
+		return
+	}
 	if errors.Is(err, binding.ErrInvalidCode) {
 		respondError(w, r, http.StatusBadRequest, "invalid_bind_code", "invalid binding code or device ID")
 		return

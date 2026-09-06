@@ -3,6 +3,7 @@ package ops
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -30,6 +31,17 @@ func NewMetrics() *Metrics {
 func (m *Metrics) ObserveHTTP(method string, status int, duration time.Duration) {
 	if m == nil {
 		return
+	}
+	// Methods originate in untrusted requests. Keep the label set finite even
+	// for requests that never match a route.
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+	default:
+		method = "OTHER"
+	}
+	if status < 100 || status > 999 {
+		status = 0
 	}
 	key := metricKey{method: method, status: status}
 	m.mu.Lock()

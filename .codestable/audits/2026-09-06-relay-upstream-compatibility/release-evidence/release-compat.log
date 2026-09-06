@@ -1,0 +1,4 @@
+=== RUN   TestUnmodifiedNodeRelayCompatibility
+--- PASS: TestUnmodifiedNodeRelayCompatibility (5.97s)
+PASS
+ok  	mindfs-cloud/compat	6.911s

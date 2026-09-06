@@ -1,0 +1,12 @@
+ok  	mindfs-cloud/app	3.786s
+ok  	mindfs-cloud/cmd/mindfs-relay	2.619s
+ok  	mindfs-cloud/compat	2.822s
+ok  	mindfs-cloud/deploy	6.851s
+ok  	mindfs-cloud/internal/assetsync	1.858s
+ok  	mindfs-cloud/internal/binding	2.780s
+ok  	mindfs-cloud/internal/config	2.287s
+ok  	mindfs-cloud/internal/connector	2.206s
+ok  	mindfs-cloud/internal/gateway	17.975s
+ok  	mindfs-cloud/internal/identity	2.342s
+ok  	mindfs-cloud/internal/ops	1.753s
+ok  	mindfs-cloud/internal/store	3.718s

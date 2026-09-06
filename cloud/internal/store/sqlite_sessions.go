@@ -26,6 +26,14 @@ func (s *SQLiteStore) DeleteExpired(ctx context.Context, now time.Time) error {
 	}
 	const query = "UPDATE bind_challenges SET status = ? " +
 		"WHERE expires_at <= ? AND status IN (?, ?)"
-	_, err := s.db.ExecContext(ctx, query, BindExpired, nowMillis, BindPending, BindConfirmed)
+	if _, err := s.db.ExecContext(ctx, query, BindExpired, nowMillis, BindPending, BindConfirmed); err != nil {
+		return err
+	}
+	// Keep a retry window after expiry, then reclaim terminal challenges. Device
+	// tokens are independent and remain usable after their challenge is removed.
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM bind_challenges WHERE code_hash IN (SELECT code_hash FROM bind_challenges WHERE expires_at <= ? ORDER BY expires_at LIMIT 1000)",
+		toMillis(now.Add(-bindChallengeRetention)),
+	)
 	return err
 }

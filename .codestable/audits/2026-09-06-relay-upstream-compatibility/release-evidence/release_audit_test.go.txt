@@ -1,0 +1,205 @@
+package compat_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestAuditReleaseFeatures(t *testing.T) {
+	if os.Getenv("MINDFS_RUN_COMPAT") != "1" {
+		t.Skip("explicit opt-in required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), totalTimeout)
+	defer cancel()
+	r, err := newCompatibilityRun(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := r.close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	for _, stage := range []func() error{r.build, r.startCloud} {
+		if err := stage(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cloudStatic := r.staticDir
+	r.staticDir = filepath.Join(r.runDir, "release-web")
+	releaseWeb := filepath.Join(filepath.Dir(r.nodeBin), "web")
+	if err := os.CopyFS(r.staticDir, os.DirFS(releaseWeb)); err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []func() error{r.startNode, r.bindNode, r.waitForPublicHealth} {
+		if err := stage(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, index, err := r.request(http.MethodGet, r.publicNodeURL("/"), nil, nil)
+	if err != nil || response.StatusCode != 200 {
+		t.Fatalf("release index failed: %v", err)
+	}
+	for _, asset := range []string{"index-Cfwl2jiA.js", "index-Cdk4SFKm.css"} {
+		if !bytes.Contains(index, []byte("/mindfs-assets/"+asset)) {
+			t.Fatal("release index does not reference expected shared asset")
+		}
+		response, _, err := r.request(http.MethodGet, r.cloudURL+"/mindfs-assets/"+asset, nil, nil)
+		if err != nil || response.StatusCode != 404 {
+			t.Fatalf("missing release asset expected 404: %v", err)
+		}
+	}
+	t.Log("actual v0.5.0 index rewritten; missing JS/CSS in isolated Cloud returned 404")
+	if err := os.CopyFS(filepath.Join(cloudStatic, "assets"), os.DirFS(filepath.Join(releaseWeb, "assets"))); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	err = filepath.WalkDir(filepath.Join(releaseWeb, "assets"), func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(filepath.Join(releaseWeb, "assets"), path)
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.cloudURL+"/mindfs-assets/"+filepath.ToSlash(rel), nil)
+		if err != nil {
+			return err
+		}
+		resp, err := r.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("asset %s status %d", rel, resp.StatusCode)
+		}
+		expected, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, resp.Body); err != nil {
+			return err
+		}
+		digest := sha256.Sum256(expected)
+		if !bytes.Equal(hash.Sum(nil), digest[:]) {
+			return fmt.Errorf("asset digest mismatch %s", rel)
+		}
+		count++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%d actual release assets served with matching SHA-256 after temporary import", count)
+	session, err := r.openE2EESession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	call := func(method, path, payload string, want int, key string, value any) map[string]any {
+		t.Helper()
+		headers := auditProofHeaders(session, method, path)
+		var body []byte
+		if payload != "" {
+			envelope, err := encryptBytes(session.Key, []byte(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err = json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		resp, data, err := r.request(method, r.publicNodeURL(path), body, headers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != want || resp.Header.Get("X-MindFS-E2EE") != "1" {
+			t.Fatalf("%s %s expected encrypted status %d, got %d", method, path, want, resp.StatusCode)
+		}
+		var envelope cipherEnvelope
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		plain, err := decryptBytes(session.Key, &envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(plain, &result); err != nil {
+			t.Fatal(err)
+		}
+		got, exists := result[key]
+		if !exists {
+			t.Fatalf("%s %s missing expected response key %s", method, path, key)
+		}
+		if value != nil && got != value {
+			t.Fatalf("%s %s unexpected value for %s", method, path, key)
+		}
+		t.Logf("%s %s -> %d, encrypted response decoded and field %s verified", method, path, want, key)
+		return result
+	}
+	call("GET", "/api/agents/memory", "", 200, "idle_hours", float64(72))
+	call("POST", "/api/agents/release-idle", "{}", 200, "released_sessions", float64(0))
+	call("PUT", "/api/preferences/idle-session-resource-release", `{"hours":24}`, 200, "hours", float64(24))
+	call("GET", "/api/preferences/idle-session-resource-release", "", 200, "hours", float64(24))
+	call("PUT", "/api/preferences/new-project-meta-location", `{"location":"home"}`, 200, "location", "home")
+	call("GET", "/api/preferences/new-project-meta-location", "", 200, "location", "home")
+	call("PUT", "/api/preferences/session-naming", `{"disabled":true}`, 200, "disabled", true)
+	call("GET", "/api/preferences/session-naming", "", 200, "disabled", true)
+	saved := call("POST", "/api/prompts", `{"text":"isolated-release-audit"}`, 200, "items", nil)
+	if len(saved["items"].([]any)) != 1 {
+		t.Fatal("prompt was not saved")
+	}
+	deleted := call("DELETE", "/api/prompts", `{"text":"isolated-release-audit"}`, 200, "items", nil)
+	if items, ok := deleted["items"].([]any); deleted["items"] != nil && (!ok || len(items) != 0) {
+		t.Fatal("prompt was not deleted")
+	}
+	call("GET", "/api/agents/codex/rate-limits?agent=audit-unconfigured", "", 502, "error", "agent not configured: audit-unconfigured")
+	call("POST", "/api/agents/codex/rate-limit-reset", `{}`, 400, "error", "idempotency_key required")
+	path := "/api/sessions/audit-missing/toolcalls/claude-task-list%3A1?root=audit-missing"
+	direct, _, err := r.request("GET", "http://"+r.nodeAddr+path, nil, auditProofHeaders(session, "GET", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.StatusCode == 401 || direct.Header.Get("X-MindFS-E2EE") != "1" {
+		t.Fatal("encoded path proof was not accepted by direct Node")
+	}
+	relayed, data, err := r.request("GET", r.publicNodeURL(path), nil, auditProofHeaders(session, "GET", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relayed.StatusCode != 401 || !strings.Contains(string(data), "e2ee_proof_invalid") {
+		t.Fatal("expected current Relay encoded path defect was not reproduced")
+	}
+	t.Logf("known defect reproduced against official binary: direct Node -> encrypted %d (proof accepted, nonexistent test data); Relay -> 401 e2ee_proof_invalid", direct.StatusCode)
+	if err := r.close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.verifyPortsReleased(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func auditProofHeaders(session *e2eeSession, method, path string) map[string]string {
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	return map[string]string{
+		"Content-Type": "application/json", "X-MindFS-E2EE": "1", "X-MindFS-Client-ID": session.ClientID,
+		"X-MindFS-TS": timestamp, "X-MindFS-Proof": buildRequestProof(session.Key, method, path, timestamp, session.ClientID),
+	}
+}

@@ -1,0 +1,11 @@
+{
+  "asset": "https://github.com/a9gent/mindfs/releases/download/v0.5.0/mindfs_v0.5.0_darwin_arm64.tar.gz",
+  "digest": "sha256:8dd6d5010eaa8940d4495f088ac2e8868d96e69aea4bb57725351b5f9e049ca2",
+  "bytes": 10385067,
+  "asset_file_count": 147,
+  "index_assets": [
+    "index-Cfwl2jiA.js",
+    "index-Cdk4SFKm.css"
+  ],
+  "matches_github_asset_digest": true
+}

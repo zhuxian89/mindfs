@@ -1,0 +1,19 @@
+=== RUN   TestAuditReleaseFeatures
+    release_audit_test.go:62: actual v0.5.0 index rewritten; missing JS/CSS in isolated Cloud returned 404
+    release_audit_test.go:108: 147 actual release assets served with matching SHA-256 after temporary import
+    release_audit_test.go:157: GET /api/agents/memory -> 200, encrypted response decoded and field idle_hours verified
+    release_audit_test.go:158: POST /api/agents/release-idle -> 200, encrypted response decoded and field released_sessions verified
+    release_audit_test.go:159: PUT /api/preferences/idle-session-resource-release -> 200, encrypted response decoded and field hours verified
+    release_audit_test.go:160: GET /api/preferences/idle-session-resource-release -> 200, encrypted response decoded and field hours verified
+    release_audit_test.go:161: PUT /api/preferences/new-project-meta-location -> 200, encrypted response decoded and field location verified
+    release_audit_test.go:162: GET /api/preferences/new-project-meta-location -> 200, encrypted response decoded and field location verified
+    release_audit_test.go:163: PUT /api/preferences/session-naming -> 200, encrypted response decoded and field disabled verified
+    release_audit_test.go:164: GET /api/preferences/session-naming -> 200, encrypted response decoded and field disabled verified
+    release_audit_test.go:165: POST /api/prompts -> 200, encrypted response decoded and field items verified
+    release_audit_test.go:169: DELETE /api/prompts -> 200, encrypted response decoded and field items verified
+    release_audit_test.go:173: GET /api/agents/codex/rate-limits?agent=audit-unconfigured -> 502, encrypted response decoded and field error verified
+    release_audit_test.go:174: POST /api/agents/codex/rate-limit-reset -> 400, encrypted response decoded and field error verified
+    release_audit_test.go:190: known defect reproduced against official binary: direct Node -> encrypted 400 (proof accepted, nonexistent test data); Relay -> 401 e2ee_proof_invalid
+--- PASS: TestAuditReleaseFeatures (4.45s)
+PASS
+ok  	mindfs-cloud/compat	5.387s

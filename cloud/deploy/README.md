@@ -10,7 +10,7 @@ improvise a different upgrade sequence.
 2. Never remove or recreate the `relay-data`, `relay-assets`, or
    `relay-backups` volumes during a normal deployment or upgrade.
 3. Never run `docker system prune --volumes` on the Relay host.
-4. Never skip `asset-sync` after building a new Relay image.
+4. Never skip `refresh-assets.sh` (sync and coverage verification) after building a new Relay image or before upgrading a Node to a new official release.
 5. Stop the deployment immediately if `asset-sync`, `validate`, `migrate`, a
    health check, or an asset verification command fails.
 6. Keep `cloud/deploy/.env` only on the server. Never commit it or print its
@@ -24,6 +24,13 @@ improvise a different upgrade sequence.
 Web assets used by all supported official MindFS client versions.
 `relay-backups` contains generated database backups. Deleting volumes is not a
 deployment step.
+
+SQLite uses WAL with `synchronous=FULL`, one writer connection and up to four
+read-only connections for node lookups/lists. The database directory must remain
+on a local filesystem that supports SQLite locking and writable WAL/SHM sidecar
+files. Keep the existing `relay-data` volume; do not move it to a network share.
+Use the backup command below for a complete snapshot, including committed data
+that has not yet been checkpointed from WAL into the main database file.
 
 ## Configuration
 
@@ -45,6 +52,40 @@ chmod 600 .env
 `MINDFS_CLOUD_BOOTSTRAP_EMAIL` owns nodes migrated from a V0 database. That QQ
 address must complete normal registration before those nodes become visible.
 
+### Client IP and resource limits
+
+`MINDFS_CLOUD_TRUSTED_PROXIES` accepts comma-separated IP CIDRs. The default is
+empty: Relay uses the TCP peer address and ignores client-IP headers. When
+behind a proxy, configure only the actual trusted proxy addresses/subnets; do
+not use `0.0.0.0/0` or `::/0`. Relay walks `X-Forwarded-For` from right to left
+until it reaches an untrusted address. It never trusts `CF-Connecting-IP`
+directly, and the supplied Caddy example removes that header.
+
+Before upgrading a proxied deployment, identify its current proxy chain and
+configure the trusted CIDRs. An empty list is safe, but all clients arriving
+through the same proxy will share its login quota. With Cloudflare or another
+edge in front of Caddy/OpenResty, the edge and proxy must sanitize forwarded
+headers and preserve a verifiable chain; adding a trusted CIDR does not make
+arbitrary incoming headers trustworthy. Keep the existing network arrangement.
+
+Password hashing and verification share a two-operation concurrency limit
+(about 128 MiB of Argon2 working memory with default password parameters).
+Excess work returns HTTP 429. Binding polls allow 600 requests per source per
+minute; new challenges additionally have a global rolling limit of 120 per
+minute and a 10,000-record storage cap. Existing challenges remain pollable at
+the creation/storage caps. Oversized binding codes or device IDs are rejected.
+
+Expired/revoked challenges are retained until 24 hours after their original
+expiry, then removed in batches of at most 1,000 each cleanup pass. Device tokens
+are stored separately and remain valid. Old databases exceeding the cap can
+require several minute-spaced cleanup passes to reclaim their terminal rows;
+active bindings are never removed to make room. SQLite can reuse the freed
+pages; file size does not necessarily shrink immediately.
+
+The Cloud build now requires Go 1.26.6 or newer. The supplied Dockerfile pins
+Go 1.26.6 so a rebuild includes the reviewed standard-library security fixes.
+Source changes alone do not update an already deployed binary.
+
 Before every deployment, verify that Compose can read the configuration:
 
 ```bash
@@ -61,7 +102,7 @@ already been created intentionally:
 ```bash
 set -euo pipefail
 docker compose build --pull
-docker compose run --rm asset-sync
+./refresh-assets.sh
 docker compose run --rm relay validate
 docker compose run --rm relay migrate
 docker compose up -d
@@ -85,7 +126,7 @@ docker compose exec relay mindfs-relay backup \
 git pull --ff-only
 docker compose config --quiet
 docker compose build --pull --no-cache relay
-docker compose run --rm asset-sync
+./refresh-assets.sh
 docker compose run --rm relay validate
 docker compose run --rm relay migrate
 docker compose up -d --force-recreate relay
@@ -101,7 +142,46 @@ container does not require removing the Compose stack or its volumes.
 
 The `relay` and `asset-sync` services use the same image tag. Building the
 `relay` service updates the image that the following `asset-sync` command
-uses. `asset-sync` must finish successfully before the Relay is recreated.
+uses. Both asset sync and coverage verification must finish successfully before
+the Relay is recreated. The script runs one-off commands with `--no-deps`; it
+does not start, stop, recreate, or migrate the running Relay.
+
+## Node Upgrades Without a Cloud Upgrade
+
+A Node can install a release newer than the running Cloud image. The one-shot
+Compose `asset-sync` service does not poll for new releases. Before upgrading
+any Node, refresh the existing asset volume using the already built image:
+
+```bash
+./refresh-assets.sh
+```
+
+This imports new official releases, retains historical hashed assets, then
+checks the current entry and the immutable files recorded for every supported
+release against the current GitHub catalog. The check reports the latest
+covered tag and fails if a release is missing, a marker/file is invalid, the
+release list is empty, or GitHub is unavailable. Failure leaves the running
+Relay in place; investigate the reported error before upgrading the Node.
+
+Once an image containing `check-assets` has been built, the same script can be
+run from the existing 1Panel/host scheduler, for example daily, using its
+absolute path. Configure the scheduler to report nonzero exit status and avoid
+overlapping runs or application deployments. No scheduler is installed by this
+repository. A daily refresh can lag a just-published release, so still run the
+script immediately before a Node upgrade.
+
+For a read-only coverage check, without syncing or restarting anything:
+
+```bash
+docker compose run --rm --no-deps relay check-assets /var/lib/mindfs-assets
+```
+
+This explicitly checks GitHub and hashes local recorded immutable assets; it
+does not download archives or write files and does not require SMTP/database
+initialization. It is a maintenance command, not part of `/readyz` or the Relay
+request path. It verifies the mounted files, while the public HTTP checks below
+verify reverse-proxy access. It cannot certify arbitrary development builds or
+every historical version of shared, non-hashed assets.
 
 ## How Historical Web Asset Sync Works
 
@@ -117,8 +197,10 @@ The sync is incremental:
 - A valid `.releases/{tag}.complete` marker and its verified files cause that
   release to be skipped.
 - A newly published release downloads only its Linux AMD64 archive.
-- A missing marker or missing/corrupt historical file causes only the affected
+- A missing marker or missing historical hashed file causes only the affected
   release to be downloaded and repaired.
+- A corrupt existing hashed file is detected, but its differing content is an
+  immutable-name collision and fails the sync; it is not silently overwritten.
 - Existing content-hashed files are never deleted or overwritten.
 - A same-name/different-content collision fails the sync and therefore blocks
   deployment.
@@ -128,6 +210,10 @@ Releases remain the recovery source for historical frontend assets. The
 `relay-assets` volume is still preserved during routine upgrades so that sync
 stays incremental and deployment does not depend on downloading every release
 again.
+
+`check-assets` uses the same release selection as `sync-assets` (stable releases
+from `v0.1.8`, including all paginated results). Neither command treats an empty
+supported-release list as successful verification.
 
 The Relay mounts `relay-assets` read-only and serves these files at
 `/mindfs-assets/{file}`. Compose also prevents Relay startup when the
@@ -147,7 +233,7 @@ docker compose ps
 docker compose logs --tail=100 asset-sync relay
 ```
 
-`/readyz` verifies that every current JS/CSS entry referenced by the deployed
+`/readyz` does not check release freshness. It verifies that every current JS/CSS entry referenced by the deployed
 `index.html` exists in `relay-assets`. To verify those same files through the
 public reverse proxy, first copy the index out of the container and inspect the
 actual content-hashed names:

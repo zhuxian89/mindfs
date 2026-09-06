@@ -49,7 +49,12 @@ func TestWebSocketGatewayBridgesTextBinaryAndClose(t *testing.T) {
 				nodeErr <- err
 				return
 			}
-			if err := writeWSDataFrame(node, opcode, payload); err != nil {
+			body, err := io.ReadAll(payload)
+			if err != nil {
+				nodeErr <- err
+				return
+			}
+			if err := writeWSDataFrame(node, opcode, body); err != nil {
 				nodeErr <- err
 				return
 			}

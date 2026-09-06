@@ -1,0 +1,22 @@
+=== RUN   TestCurrentNodeAPICompatibility
+    node_api_test.go:80: GET /api/agents/memory -> 200, encrypted response decoded and field idle_hours verified
+    node_api_test.go:81: POST /api/agents/release-idle -> 200, encrypted response decoded and field released_sessions verified
+    node_api_test.go:82: PUT /api/preferences/idle-session-resource-release -> 200, encrypted response decoded and field hours verified
+    node_api_test.go:83: GET /api/preferences/idle-session-resource-release -> 200, encrypted response decoded and field hours verified
+    node_api_test.go:84: PUT /api/preferences/new-project-meta-location -> 200, encrypted response decoded and field location verified
+    node_api_test.go:85: GET /api/preferences/new-project-meta-location -> 200, encrypted response decoded and field location verified
+    node_api_test.go:86: PUT /api/preferences/session-naming -> 200, encrypted response decoded and field disabled verified
+    node_api_test.go:87: GET /api/preferences/session-naming -> 200, encrypted response decoded and field disabled verified
+    node_api_test.go:88: POST /api/prompts -> 200, encrypted response decoded and field items verified
+    node_api_test.go:92: DELETE /api/prompts -> 200, encrypted response decoded and field items verified
+    node_api_test.go:96: GET /api/agents/codex/rate-limits?agent=audit-unconfigured -> 502, encrypted response decoded and field error verified
+    node_api_test.go:97: POST /api/agents/codex/rate-limit-reset -> 400, encrypted response decoded and field error verified
+    node_api_test.go:126: GET /api/sessions/missing/toolcalls/task%3A1?root=missing -> 400, encrypted response decoded and field error verified
+    node_api_test.go:126: GET /api/sessions/missing/toolcalls/task%3a1?root=missing -> 400, encrypted response decoded and field error verified
+    node_api_test.go:126: GET /api/sessions/missing/toolcalls/task%2F1?root=missing -> 400, encrypted response decoded and field error verified
+    node_api_test.go:126: GET /api/sessions/missing/toolcalls/task%252F1?root=missing -> 400, encrypted response decoded and field error verified
+--- PASS: TestCurrentNodeAPICompatibility (4.17s)
+=== RUN   TestUnmodifiedNodeRelayCompatibility
+--- PASS: TestUnmodifiedNodeRelayCompatibility (5.20s)
+PASS
+ok  	mindfs-cloud/compat	10.227s

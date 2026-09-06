@@ -15,6 +15,7 @@ services:
   relay:
     <<: *relay-image
     restart: unless-stopped
+    stop_grace_period: 15s
     depends_on:
       asset-sync:
         condition: service_completed_successfully
@@ -31,6 +32,7 @@ services:
       MINDFS_CLOUD_SMTP_USERNAME: ${MINDFS_CLOUD_SMTP_USERNAME}
       MINDFS_CLOUD_SMTP_PASSWORD: ${MINDFS_CLOUD_SMTP_PASSWORD}
       MINDFS_CLOUD_BOOTSTRAP_EMAIL: ${MINDFS_CLOUD_BOOTSTRAP_EMAIL}
+      MINDFS_CLOUD_TRUSTED_PROXIES: ${MINDFS_CLOUD_TRUSTED_PROXIES:-}
     volumes:
       - relay-data:/var/lib/mindfs-cloud
       - relay-assets:/var/lib/mindfs-assets:ro

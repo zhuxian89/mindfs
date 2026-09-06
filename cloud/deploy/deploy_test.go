@@ -10,7 +10,7 @@ func TestDeploymentFilesContainRequiredBoundaries(t *testing.T) {
 	dockerfile := read(t, "../Dockerfile")
 	for _, required := range []string{
 		"FROM node:22-alpine AS web-build",
-		"FROM golang:1.25-alpine AS cloud-build",
+		"FROM golang:1.26.6-alpine AS cloud-build",
 		"FROM gcr.io/distroless/static-debian12:nonroot",
 		"USER 65532:65532",
 		"MINDFS_CLOUD_ASSETS_DIR=/opt/mindfs/web",

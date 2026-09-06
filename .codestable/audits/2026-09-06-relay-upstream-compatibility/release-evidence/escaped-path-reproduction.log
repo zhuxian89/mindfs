@@ -1,0 +1,6 @@
+=== RUN   TestAuditRelayPreservesEscapedProofPath
+    relay_audit_l1pbt6_test.go:32: proof path changed by current gateway: browser="/api/sessions/session-1/toolcalls/claude-task-list%3A1?root=mindfs" node="/api/sessions/session-1/toolcalls/claude-task-list:1?root=mindfs"
+--- FAIL: TestAuditRelayPreservesEscapedProofPath (0.00s)
+FAIL
+FAIL	mindfs-cloud/internal/gateway	1.266s
+FAIL

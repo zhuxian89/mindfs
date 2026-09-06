@@ -8,13 +8,13 @@ import (
 )
 
 func (s *SQLiteStore) GetNode(ctx context.Context, nodeID string) (Node, error) {
-	return getNode(ctx, s.db, nodeID)
+	return getNode(ctx, s.readDB, nodeID)
 }
 
 func (s *SQLiteStore) ListNodesByOwner(ctx context.Context, ownerUserID string) ([]Node, error) {
 	const query = "SELECT id, device_id, owner_user_id, name, status, access_mode, created_at, last_seen_at " +
 		"FROM nodes WHERE owner_user_id = ?"
-	rows, err := s.db.QueryContext(ctx, query, ownerUserID)
+	rows, err := s.readDB.QueryContext(ctx, query, ownerUserID)
 	if err != nil {
 		return nil, err
 	}

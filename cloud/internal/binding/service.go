@@ -70,7 +70,7 @@ func NewService(st store.Store, tokens DeviceTokenService, bindTTL time.Duration
 
 func (s *Service) Poll(ctx context.Context, code, deviceID string) (BindPollResponse, error) {
 	codeHash, err := hashBindCode(code)
-	if err != nil || strings.TrimSpace(deviceID) == "" {
+	if err != nil || strings.TrimSpace(deviceID) == "" || len(deviceID) > 256 {
 		return BindPollResponse{}, ErrInvalidCode
 	}
 	now := s.now()
@@ -216,7 +216,7 @@ func (s *Service) Revoke(ctx context.Context, code string) error {
 
 func hashBindCode(code string) ([]byte, error) {
 	code = strings.TrimSpace(code)
-	if !strings.HasPrefix(code, "pc_") || len(code) < 8 {
+	if !strings.HasPrefix(code, "pc_") || len(code) < 8 || len(code) > 128 {
 		return nil, ErrInvalidCode
 	}
 	if _, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(code, "pc_")); err != nil {

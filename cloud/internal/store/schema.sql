@@ -75,7 +75,11 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bind_challenges_node_id ON bind_challenges(node_id);
+CREATE INDEX IF NOT EXISTS idx_bind_challenges_expires_at ON bind_challenges(expires_at);
+CREATE INDEX IF NOT EXISTS idx_bind_challenges_status_expires_at ON bind_challenges(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_bind_challenges_created_at ON bind_challenges(created_at);
 CREATE INDEX IF NOT EXISTS idx_device_tokens_node_id ON device_tokens(node_id);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_email_verification_codes_expires_at ON email_verification_codes(expires_at);
 CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_window ON auth_rate_limits(window_started_at);

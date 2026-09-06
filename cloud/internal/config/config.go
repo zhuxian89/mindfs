@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	stdpath "path"
@@ -39,6 +40,7 @@ type Config struct {
 	StreamOpenTimeout time.Duration
 	HeaderTimeout     time.Duration
 	MaxWSMessageBytes int64
+	TrustedProxies    []netip.Prefix
 }
 
 func Load() (Config, error) {
@@ -63,6 +65,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	trustedProxies, err := parseTrustedProxies(os.Getenv("MINDFS_CLOUD_TRUSTED_PROXIES"))
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Addr:              defaultString(os.Getenv("MINDFS_CLOUD_ADDR"), defaultAddr),
@@ -76,7 +82,20 @@ func Load() (Config, error) {
 		StreamOpenTimeout: defaultStreamOpenTimeout,
 		HeaderTimeout:     defaultHeaderTimeout,
 		MaxWSMessageBytes: defaultMaxWSMessageBytes,
+		TrustedProxies:    trustedProxies,
 	}, nil
+}
+
+func parseTrustedProxies(value string) ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
+	for _, value := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return nil, errors.New("MINDFS_CLOUD_TRUSTED_PROXIES must contain comma-separated IP CIDRs")
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
 
 func parseSMTPConfig() (identity.SMTPConfig, string, error) {

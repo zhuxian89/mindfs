@@ -7,7 +7,7 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.25-alpine AS cloud-build
+FROM golang:1.26.6-alpine AS cloud-build
 WORKDIR /src/cloud
 COPY cloud/go.mod cloud/go.sum ./
 RUN go mod download

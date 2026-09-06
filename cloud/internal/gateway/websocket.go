@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"io"
 	"log"
@@ -32,7 +31,7 @@ type bridgeResult struct {
 }
 
 func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMessageBytes int64) error {
-	nodeID, path, err := parseNodeRoute(r.URL.Path)
+	nodeID, path, err := parseNodeRoute(r.URL.EscapedPath())
 	if err != nil {
 		return &Error{Status: http.StatusNotFound, Code: "node_not_found", Message: "node does not exist"}
 	}
@@ -60,12 +59,11 @@ func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMess
 		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "node WebSocket response failed"}
 	}
 	_ = stream.SetReadDeadline(time.Time{})
+	sanitizeNodeResponseHeaders(response.Header, nodeID)
 	if response.StatusCode != http.StatusSwitchingProtocols {
 		defer response.Body.Close()
 		removeHopHeaders(response.Header)
-		copyHeaders(w.Header(), response.Header)
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
+		writeHTTPResponse(w, r, response)
 		return nil
 	}
 
@@ -160,8 +158,7 @@ func bridgeStreamToPublic(stream io.Reader, publicWS *websocket.Conn, maxMessage
 				results <- bridgeResult{err: errWSProtocol, closeCode: websocket.CloseProtocolError, reason: "invalid_opcode"}
 				return
 			}
-			_ = publicWS.SetWriteDeadline(time.Now().Add(wsBridgeWriteTimeout))
-			if err := publicWS.WriteMessage(opcode, payload); err != nil {
+			if err := writePublicMessage(publicWS, opcode, payload); err != nil {
 				results <- bridgeResult{err: err}
 				return
 			}
@@ -176,82 +173,6 @@ func bridgeStreamToPublic(stream io.Reader, publicWS *websocket.Conn, maxMessage
 			results <- bridgeResult{err: errWSProtocol, closeCode: websocket.CloseProtocolError, reason: "invalid_frame"}
 			return
 		}
-	}
-}
-
-func writeWSDataFrame(w io.Writer, opcode int, payload []byte) error {
-	if err := setWriteDeadline(w, wsBridgeWriteTimeout); err != nil {
-		return err
-	}
-	header := make([]byte, 6)
-	header[0] = wsFrameData
-	header[1] = byte(opcode)
-	binary.BigEndian.PutUint32(header[2:], uint32(len(payload)))
-	if _, err := w.Write(header); err != nil {
-		return err
-	}
-	_, err := w.Write(payload)
-	return err
-}
-
-func writeWSCloseFrame(w io.Writer, code int, reason string) error {
-	if err := setWriteDeadline(w, wsBridgeWriteTimeout); err != nil {
-		return err
-	}
-	reasonBytes := []byte(reason)
-	if len(reasonBytes) > 65535 {
-		reasonBytes = reasonBytes[:65535]
-	}
-	header := make([]byte, 7)
-	header[0] = wsFrameClose
-	binary.BigEndian.PutUint16(header[1:], uint16(code))
-	binary.BigEndian.PutUint32(header[3:], uint32(len(reasonBytes)))
-	if _, err := w.Write(header); err != nil {
-		return err
-	}
-	_, err := w.Write(reasonBytes)
-	return err
-}
-
-func readWSFrame(r io.Reader, maxMessageBytes int64) (byte, int, []byte, int, string, error) {
-	var frameType [1]byte
-	if _, err := io.ReadFull(r, frameType[:]); err != nil {
-		return 0, 0, nil, 0, "", err
-	}
-	switch frameType[0] {
-	case wsFrameData:
-		var header [5]byte
-		if _, err := io.ReadFull(r, header[:]); err != nil {
-			return 0, 0, nil, 0, "", err
-		}
-		size := int64(binary.BigEndian.Uint32(header[1:]))
-		if size > maxMessageBytes {
-			return 0, 0, nil, 0, "", errWSTooLarge
-		}
-		payload := make([]byte, size)
-		if _, err := io.ReadFull(r, payload); err != nil {
-			return 0, 0, nil, 0, "", err
-		}
-		return wsFrameData, int(header[0]), payload, 0, "", nil
-	case wsFrameClose:
-		var header [6]byte
-		if _, err := io.ReadFull(r, header[:]); err != nil {
-			return 0, 0, nil, 0, "", err
-		}
-		size := int64(binary.BigEndian.Uint32(header[2:]))
-		if size > 65535 {
-			return 0, 0, nil, 0, "", errWSProtocol
-		}
-		reason := make([]byte, size)
-		if _, err := io.ReadFull(r, reason); err != nil {
-			return 0, 0, nil, 0, "", err
-		}
-		if !utf8.Valid(reason) {
-			return 0, 0, nil, 0, "", errWSProtocol
-		}
-		return wsFrameClose, 0, nil, int(binary.BigEndian.Uint16(header[:2])), string(reason), nil
-	default:
-		return 0, 0, nil, 0, "", errWSProtocol
 	}
 }
 

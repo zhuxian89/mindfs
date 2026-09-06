@@ -54,6 +54,18 @@ func requestLogMiddleware(next http.Handler, observers ...func(string, int, time
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		tracked := &statusResponseWriter{ResponseWriter: w}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				if recovered == http.ErrAbortHandler {
+					for _, observe := range observers {
+						if observe != nil {
+							observe(r.Method, http.StatusBadGateway, time.Since(started))
+						}
+					}
+				}
+				panic(recovered)
+			}
+		}()
 		next.ServeHTTP(tracked, r)
 		status := tracked.status
 		if status == 0 {

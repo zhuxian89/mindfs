@@ -30,6 +30,7 @@ const (
 	verificationResendDelay = time.Minute
 	verificationAttempts    = 5
 	UserSessionTTL          = 12 * time.Hour
+	SessionCookieName       = "mindfs_cloud_session"
 	hourlyEmailLimit        = 10
 	hourlySourceLimit       = 30
 )
@@ -40,12 +41,13 @@ type passwordHasher interface {
 }
 
 type Service struct {
-	store     store.Store
-	passwords passwordHasher
-	mail      MailSender
-	key       [32]byte
-	now       func() time.Time
-	dummyHash string
+	store         store.Store
+	passwords     passwordHasher
+	mail          MailSender
+	key           [32]byte
+	now           func() time.Time
+	dummyHash     string
+	passwordSlots chan struct{}
 }
 
 func NewService(st store.Store, passwords passwordHasher, mail MailSender, key [32]byte) (*Service, error) {
@@ -54,12 +56,13 @@ func NewService(st store.Store, passwords passwordHasher, mail MailSender, key [
 		return nil, err
 	}
 	return &Service{
-		store:     st,
-		passwords: passwords,
-		mail:      mail,
-		key:       key,
-		now:       func() time.Time { return time.Now().UTC() },
-		dummyHash: dummyHash,
+		store:         st,
+		passwords:     passwords,
+		mail:          mail,
+		key:           key,
+		now:           func() time.Time { return time.Now().UTC() },
+		dummyHash:     dummyHash,
+		passwordSlots: make(chan struct{}, 2),
 	}, nil
 }
 
@@ -88,7 +91,7 @@ func (s *Service) Register(ctx context.Context, email, password, code string) (s
 	if err != nil {
 		return store.User{}, "", err
 	}
-	passwordHash, err := s.passwords.Hash(password)
+	passwordHash, err := s.hashPassword(ctx, password)
 	if err != nil {
 		return store.User{}, "", err
 	}
@@ -133,7 +136,7 @@ func (s *Service) Login(ctx context.Context, email, password, source string) (st
 	if lookupErr == nil && user.Status == "active" {
 		encoded = user.PasswordHash
 	}
-	matched, verifyErr := s.passwords.Verify(encoded, password)
+	matched, verifyErr := s.verifyPassword(ctx, encoded, password)
 	if verifyErr != nil {
 		return store.User{}, "", verifyErr
 	}
@@ -148,7 +151,10 @@ func (s *Service) Login(ctx context.Context, email, password, source string) (st
 	if err != nil {
 		return store.User{}, "", err
 	}
-	user, err = s.store.CreateUserSession(ctx, normalized, session, now)
+	user, err = s.store.CreateUserSession(ctx, normalized, encoded, session, now)
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return store.User{}, "", ErrInvalidCredentials
+	}
 	if err != nil {
 		return store.User{}, "", err
 	}
@@ -185,7 +191,7 @@ func (s *Service) ResetPassword(ctx context.Context, email, code, newPassword st
 	if err != nil {
 		return err
 	}
-	passwordHash, err := s.passwords.Hash(newPassword)
+	passwordHash, err := s.hashPassword(ctx, newPassword)
 	if err != nil {
 		return err
 	}
@@ -197,7 +203,7 @@ func (s *Service) ResetPassword(ctx context.Context, email, code, newPassword st
 }
 
 func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPassword, newPassword string) (string, error) {
-	matched, err := s.passwords.Verify(user.PasswordHash, currentPassword)
+	matched, err := s.verifyPassword(ctx, user.PasswordHash, currentPassword)
 	if err != nil {
 		return "", err
 	}
@@ -207,7 +213,7 @@ func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPa
 	if err := ValidatePassword(newPassword); err != nil {
 		return "", ErrInvalidPassword
 	}
-	passwordHash, err := s.passwords.Hash(newPassword)
+	passwordHash, err := s.hashPassword(ctx, newPassword)
 	if err != nil {
 		return "", err
 	}
@@ -216,7 +222,11 @@ func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPa
 	if err != nil {
 		return "", err
 	}
-	if err := s.store.ChangeUserPassword(ctx, user.ID, passwordHash, session, now); err != nil {
+	err = s.store.ChangeUserPassword(ctx, user.ID, user.PasswordHash, passwordHash, session, now)
+	if errors.Is(err, store.ErrConflict) {
+		return "", ErrInvalidCredentials
+	}
+	if err != nil {
 		return "", err
 	}
 	return sessionToken, nil
@@ -238,6 +248,10 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 		return nil
 	}
 	return s.store.DeleteUserSession(ctx, hashToken(sessionToken))
+}
+
+func (s *Service) LimitBindingPoll(ctx context.Context, source string) error {
+	return s.store.TakeRateLimit(ctx, "bind-poll-source", s.subjectHash("source", source), s.now(), time.Minute, 600)
 }
 
 func (s *Service) requestCode(ctx context.Context, email, source string, purpose VerificationPurpose) (int, error) {
@@ -324,12 +338,12 @@ func (s *Service) validCodeHash(ctx context.Context, email string, purpose Verif
 
 func (s *Service) takeLimits(ctx context.Context, scope, email, source string) error {
 	now := s.now()
-	if err := s.store.TakeRateLimit(ctx, scope+"-email", s.subjectHash("email", email), now, time.Hour, hourlyEmailLimit); errors.Is(err, store.ErrRateLimited) {
+	if err := s.store.TakeRateLimit(ctx, scope+"-source", s.subjectHash("source", source), now, time.Hour, hourlySourceLimit); errors.Is(err, store.ErrRateLimited) {
 		return ErrRateLimited
 	} else if err != nil {
 		return err
 	}
-	if err := s.store.TakeRateLimit(ctx, scope+"-source", s.subjectHash("source", source), now, time.Hour, hourlySourceLimit); errors.Is(err, store.ErrRateLimited) {
+	if err := s.store.TakeRateLimit(ctx, scope+"-email", s.subjectHash("email", email), now, time.Hour, hourlyEmailLimit); errors.Is(err, store.ErrRateLimited) {
 		return ErrRateLimited
 	} else {
 		return err

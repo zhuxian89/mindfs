@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,14 @@ func main() {
 func run(args []string, stdout io.Writer) error {
 	command, rest, err := parseCommand(args)
 	if err != nil {
+		return err
+	}
+	if command == "check-assets" {
+		coverage, err := assetsync.Check(context.Background(), assetsync.Options{TargetDir: rest[0]})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "asset coverage verified releases=%d latest=%s\n", coverage.Releases, coverage.LatestTag)
 		return err
 	}
 	if command == "sync-assets" {
@@ -99,6 +108,11 @@ func parseCommand(args []string) (string, []string, error) {
 			return "", nil, errors.New("usage: mindfs-relay sync-assets <source-dir> <target-dir>")
 		}
 		return command, args[1:], nil
+	case "check-assets":
+		if len(args) != 2 {
+			return "", nil, errors.New("usage: mindfs-relay check-assets <target-dir>")
+		}
+		return command, args[1:], nil
 	default:
 		return "", nil, fmt.Errorf("unknown command %q", command)
 	}
@@ -117,17 +131,33 @@ func serve(cfg config.Config) error {
 	}
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go func() {
-		<-runCtx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("shutdown failed: %v", err)
-		}
-	}()
-	log.Printf("mindfs cloud relay listening on %s public_url=%s", cfg.Addr, cfg.PublicURL)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	listener, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
 		return err
 	}
-	return nil
+	log.Printf("mindfs cloud relay listening on %s public_url=%s", cfg.Addr, cfg.PublicURL)
+	return serveHTTP(runCtx, server, listener, 10*time.Second)
+}
+
+func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, shutdownTimeout time.Duration) error {
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	select {
+	case err := <-served:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	err := server.Shutdown(shutdownCtx)
+	if err != nil {
+		// Enforce the upper bound for active HTTP connections. Hijacked
+		// Connector/WS connections are subsequently closed by App.Close.
+		_ = server.Close()
+	}
+	<-served
+	return err
 }

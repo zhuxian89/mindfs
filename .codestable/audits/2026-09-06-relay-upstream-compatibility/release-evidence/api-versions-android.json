@@ -1,0 +1,7 @@
+{
+  "url": "https://relay.a9gent.com/api/versions/android",
+  "checked_at": "2026-09-06T11:01:52.944078+00:00",
+  "status": 200,
+  "content_type": "application/json; charset=utf-8",
+  "body": "{\"version\":\"v0.3.7\",\"notes\":\"# MindFS v0.3.7\\n\\n## 新功能\\n- codex 支持 ask user，todolist, plan 卡片/toolcall\\n- cc 支持 subagent\\n- web push 通知（需要菜单中手动打开）\\n- 从历史消息 fork 新会话\\n\\n## 优化和修复\\n- 修复 markdown 中本地文件无法预览\\n- 修复 e2ee 模式下无法下载文件\\n- acp 协议新版本适配，修复无法设置模型\\n- 修复 ask user 刷新页面后回答丢失\\n- 修复 cc 模型名称显示问题\\n- 修复无法添加 nas/网络盘 项目\\n\\n\\n\",\"downloads\":[{\"os\":\"android\",\"arch\":\"universal\",\"filename\":\"mindfs_v0.3.7_android.apk\",\"url\":\"https://relay.a9gent.com/mindfs-downloads/mindfs_v0.3.7_android.apk\"}]}\n"
+}

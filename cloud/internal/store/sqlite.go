@@ -19,18 +19,19 @@ import (
 var schemaSQL string
 
 type SQLiteStore struct {
-	db *sql.DB
+	db     *sql.DB
+	readDB *sql.DB
 }
 
 func OpenSQLite(dataDir string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dataDir, "mindfs-cloud.db"))
+	databasePath := filepath.Join(dataDir, databaseFilename)
+	db, err := openSQLiteConnections(databasePath, false)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(1)
 	s := &SQLiteStore{db: db}
 	if err := s.Ping(context.Background()); err != nil {
 		db.Close()
@@ -44,6 +45,12 @@ func OpenSQLite(dataDir string) (*SQLiteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite columns: %w", err)
 	}
+	readDB, err := openSQLiteConnections(databasePath, true)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open sqlite readers: %w", err)
+	}
+	s.readDB = readDB
 	return s, nil
 }
 
@@ -145,7 +152,7 @@ func (s *SQLiteStore) ClaimOwnerlessNodes(ctx context.Context, email string, now
 }
 
 func (s *SQLiteStore) Close() error {
-	return s.db.Close()
+	return errors.Join(s.readDB.Close(), s.db.Close())
 }
 
 func (s *SQLiteStore) Ping(ctx context.Context) error {

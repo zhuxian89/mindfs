@@ -4,7 +4,7 @@ slug: cloud-relay-core
 scope: cloud/ 独立 Go module 中的单实例 MindFS Relay 数据面、QQ 邮箱身份控制面、节点 owner 隔离与部署运维边界
 summary: 未修改的 MindFS Node 通过绑定、Connector WebSocket 和 yamux 接入，QQ 邮箱用户通过密码 Session 管理自己的节点，Cloud Relay 提供公网转发与自托管运维能力
 status: current
-last_reviewed: 2026-08-05
+last_reviewed: 2026-09-06
 tags: [mindfs, cloud, relay, identity, qq, smtp, multi-user, binding, yamux, websocket, sqlite, compatibility, e2ee, deployment, docker, backup]
 depends_on: []
 implements: [mindfs-compatible-cloud-backend]
@@ -61,7 +61,7 @@ flowchart LR
 - Binding 首次 poll 原子创建 challenge；当前 Cloud User 确认时在同一 SQLite 事务中写入 challenge claimant、Node owner、Token hash；同一用户对 confirmed code 重试保持幂等，其他用户得到 claimed。代码锚点：`cloud/internal/binding/service.go`、`cloud/internal/store/sqlite_binding.go`。
 - Connector 在 WebSocket 升级前验证 Bearer Token，升级后用严格 binary WebSocket `net.Conn` 创建 `yamux.Server`。代码锚点：`cloud/internal/connector/handler.go:41`、`cloud/internal/connector/wsconn.go:25`。
 - Session Registry 以 node ID 保存唯一 active session；替换时先登记新 connection ID，再关闭旧 session，旧连接的延迟清理不会删除新连接。代码锚点：`cloud/internal/connector/registry.go:43`。
-- HTTP Gateway 先查 Node 和在线 session，打开 stream，去掉 `/n/{nodeId}`，重建内部 Header，再流式转发 request/response。代码锚点：`cloud/internal/gateway/http.go:44`。
+- HTTP Gateway 先查 Node 和在线 session，打开 stream，从 EscapedPath 去掉 `/n/{nodeId}`，保留转发 URL 的 decoded Path 与原始 RawPath，重建内部 Header，再流式转发 request/response；WS 握手复用同一路径处理。代码锚点：`cloud/internal/gateway/http.go:Handler`。
 - WebSocket Gateway 先把 Upgrade request 发给 Node；只有 Node 返回 101 才升级公网侧，随后在 WebSocket message 与 MindFS data/close frame 间双向桥接。代码锚点：`cloud/internal/gateway/websocket.go:35`。
 - Gateway 为 Node 生成 `X-MindFS-Relayed: 1`；该值是未修改 Node 进入 release 静态资源重写分支的严格协议契约。代码锚点：`cloud/internal/gateway/http.go:156`。
 - Relay 浏览器控制台（`/nodes`）受 Cloud Session 保护：未登录跳 `/login?next=`；`/login` 提供登录、注册和忘记密码三种模式。登录后 `GET /api/nodes` 只读取当前 owner 的 SQLite 节点并合并 Registry 在线状态，按 online→最近在线→创建时间→ID 确定性排序；rename/delete 同时校验 owner 和同源 Origin。越权统一 `node_not_found`，成功删除才撤销 Device Token 并关闭 active session。代码锚点：`cloud/app/identity_handlers.go`、`cloud/app/relay_browser_handlers.go`、`cloud/app/relay_nodes_handlers.go`。
@@ -109,6 +109,7 @@ Schema 位于 `cloud/internal/store/schema.sql`，对应值对象和 Store 契�
 - `cloud/internal/gateway/http.go:Handler` — Public Node Route 与 HTTP 反向转发。
 - `cloud/internal/gateway/websocket.go:ServeWebSocket` — 101 协调与 data/close frame 桥接。
 - `cloud/internal/assetsync/service.go:Sync` — 当前 bundle 合并、官方 release 分页发现、archive 校验、安全提取和完整性 marker。
+- `cloud/internal/assetsync/check.go:Check` — 只读校验当前入口及官方受支持 release 的 marker/immutable 文件 hash；不进入请求热路径。
 - `cloud/internal/store/sqlite.go:SQLiteStore`、`sqlite_identity.go`、`sqlite_binding.go`、`sqlite_nodes.go` — schema 迁移、身份、绑定和 owner-scoped repository。
 - `cloud/internal/store/backup.go:BackupSQLite` — 在线 SQLite 快照、目标守护和 integrity check。
 - `cloud/internal/ops/` — migrate、backup、healthcheck 与低敏 Prometheus metrics。
@@ -139,15 +140,38 @@ mindfs-relay migrate
 mindfs-relay backup /path/to/new-backup.db
 mindfs-relay healthcheck
 mindfs-relay sync-assets /opt/mindfs/web /var/lib/mindfs-assets
+mindfs-relay check-assets /var/lib/mindfs-assets
 ```
 
 `validate` 只输出非敏感结果；`migrate` 幂等执行 embedded schema 并迁移 bootstrap node owner；`backup` 使用 SQLite `VACUUM INTO` 生成不覆盖已有文件的 `0600` 一致性快照并执行 `PRAGMA integrity_check`；`healthcheck` 只访问本机 `/readyz` 且不打印响应 body；`sync-assets` 合并当前 bundle 和官方正式 release，不删除已有历史资源。
+
+`check-assets` 查询与同步相同的正式 release 集合，核对当前入口和每个 release marker 记录的 immutable 文件；缺失、hash 不符、发布列表为空或不可查询时失败。`cloud/deploy/refresh-assets.sh` 串行执行 sync + check，不重启 Relay，供 Cloud 发布及 Node 独立升级前使用。调度器可调用脚本，但仓库没有自动安装定时任务；`readyz` 仍不负责新版本资源覆盖。
+
+`cloud/compat/node_api_test.go` 增加 v0.5.0 新 API 与 E2EE 编码路径回归，使用临时数据并对照 Node 直连结果；核心协议测试仍可单独对旧二进制运行。
 
 `/healthz` 仅代表进程存活，`/readyz` 每次检查 SQLite、`index.html`、`assets/` 目录及 index 实际引用的本地 JS/CSS，`/metrics` 只按 method/status 聚合 request count 与 duration。`MINDFS_CLOUD_ASSETS_DIR` 指向合并后的 repository；Cloud 的 `/mindfs-assets/{path}` 用受限文件根读取普通文件并拒绝遍历、目录和越界 symlink。
 
 容器从仓库根以独立 stage 构建现有 `web/` 和 `cloud/`，最终使用 distroless non-root 用户。Compose 从 Git ignored、建议 `0600` 的 `cloud/deploy/.env` 注入 QQ SMTP 和 bootstrap email；SMTP 授权码不进入 Git 或 SQLite。Caddy/OpenResty 在 Cloud 外终止 TLS/WSS，并保留 Host、scheme 与 WebSocket upgrade headers。
 
 ## 8. 已知约束 / 边界情况
+
+2026-09-06 后端审计修复后的当前行为：
+
+- Gateway 在 HTTP 和 WS 转发前移除 Cloud 专属 Cookie；节点不能通过 Set-Cookie 覆盖 Cloud Cookie，其普通 Cookie 约束到相应 `/n/{id}/` 路径。单源节点脚本仍共享浏览器 origin；用户于 2026-09-06 明确决定保留这一风险，不继续实施独立管理 origin，完整控制面隔离未实现。
+- 来源限流默认使用 TCP peer，只在 `MINDFS_CLOUD_TRUSTED_PROXIES` 显式配置可信 CIDR 后从右向左解析 XFF，CF-Connecting-IP 不直接作为来源；所有密码计算共享最多两项并发预算。
+- 密码验证仍在事务外执行；会话创建和主动改密在 SQLite 事务中比较被验证的旧 hash，拒绝密码变化后到达的在途操作。
+- Gateway 复制响应 body 失败时通过 ErrAbortHandler 中止下游传输，中间件记录中断指标；不再把截断 body 正常结束为成功响应。
+- 服务入口等待 HTTP Shutdown 完成或达到 10 秒上限，再释放 App/Registry/Store；Compose 给进程 15 秒停止宽限。
+- 新绑定记录全局限制为 120/min 和 10,000 条，poll 来源限制 600/min；超过过期时间 24 小时的 challenge 每轮最多删除 1,000 条，device_tokens 独立保留。相关清理、统计索引由 schema 幂等迁移。
+- Cloud module 最低 Go 版本为 1.26.6，Docker 构建器同样固定 1.26.6。修复验证和保留限制见 `../issues/2026-09-06-relay-backend-hardening/relay-backend-hardening-fix-note.md`。
+
+2026-09-06 性能优化后的补充行为：
+
+- SQLite 使用 WAL + FULL 同步；所有写事务仍由单连接串行执行，GetNode/ListNodesByOwner 使用最多 4 条只读连接。节点不缓存，提交后的 owner/status/delete 以数据库为准；session last_seen 精度和身份事务不变，session 过期清理有 expires_at 索引。
+- 节点到浏览器的 WS data frame 读取长度后，≤1 MiB 消息复用 4/32/256/1024 KiB 分档缓冲并一次写出，更大消息使用 32 KiB 缓冲流式写同一条 WebSocket 消息；只有完整读取声明长度才发送 FIN。流式写超时按每次写入计算，等待节点下一块数据不会消耗后续写入的超时窗口。
+- 浏览器到节点的 WS 帧必须先写总长度，仍整消息缓冲并保留 32 MiB 上限；当前没有跨连接的总消息预算。固定缓冲优化不等于整个服务内存占用与并发无关。
+- Metrics 将非标准方法归并为 OTHER，状态码限定在 100–999（无效值归为 0），统计分组数量有界；原请求方法的路由和转发不变。
+- WAL/SHM 与主库使用现有本地数据卷；在线备份继续使用 VACUUM INTO，恢复仍要求停止 Relay 并按部署说明操作。
 
 - 这是单进程实现，但支持多个 Node；不支持多实例共享 presence。
 - TLS 可以在外部终止；Connector endpoint 的 `ws/wss` 只由可信 `MINDFS_CLOUD_PUBLIC_URL` 决定。

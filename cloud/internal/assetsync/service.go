@@ -88,36 +88,11 @@ func Sync(ctx context.Context, options Options) (Result, error) {
 		return result, err
 	}
 
-	releasesURL := strings.TrimSpace(options.ReleasesURL)
-	if releasesURL == "" {
-		releasesURL = DefaultReleasesURL
-	}
-	minimumTag := strings.TrimSpace(options.MinimumTag)
-	if minimumTag == "" {
-		minimumTag = DefaultMinimumTag
-	}
-	minimum, ok := parseVersion(minimumTag)
-	if !ok {
-		return result, fmt.Errorf("invalid minimum release tag %q", minimumTag)
-	}
-	client := options.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
-	}
-	releases, err := fetchReleases(ctx, client, releasesURL)
+	releases, client, err := supportedReleases(ctx, options)
 	if err != nil {
 		return result, err
 	}
-	sort.Slice(releases, func(i, j int) bool {
-		left, _ := parseVersion(releases[i].TagName)
-		right, _ := parseVersion(releases[j].TagName)
-		return compareVersion(left, right) < 0
-	})
 	for _, item := range releases {
-		version, valid := parseVersion(item.TagName)
-		if !valid || compareVersion(version, minimum) < 0 || item.Draft || item.Prerelease {
-			continue
-		}
 		asset, ok := linuxReleaseAsset(item)
 		if !ok {
 			return result, fmt.Errorf("release %s has no linux amd64 archive", item.TagName)
@@ -144,6 +119,46 @@ func Sync(ctx context.Context, options Options) (Result, error) {
 		result.AssetsReused += reused
 	}
 	return result, nil
+}
+
+// supportedReleases is shared by import and read-only coverage verification.
+func supportedReleases(ctx context.Context, options Options) ([]release, *http.Client, error) {
+	releasesURL := strings.TrimSpace(options.ReleasesURL)
+	if releasesURL == "" {
+		releasesURL = DefaultReleasesURL
+	}
+	minimumTag := strings.TrimSpace(options.MinimumTag)
+	if minimumTag == "" {
+		minimumTag = DefaultMinimumTag
+	}
+	minimum, ok := parseVersion(minimumTag)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid minimum release tag %q", minimumTag)
+	}
+	client := options.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Minute}
+	}
+	releases, err := fetchReleases(ctx, client, releasesURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	sort.Slice(releases, func(i, j int) bool {
+		left, _ := parseVersion(releases[i].TagName)
+		right, _ := parseVersion(releases[j].TagName)
+		return compareVersion(left, right) < 0
+	})
+	filtered := releases[:0]
+	for _, item := range releases {
+		version, valid := parseVersion(item.TagName)
+		if valid && compareVersion(version, minimum) >= 0 && !item.Draft && !item.Prerelease {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, nil, fmt.Errorf("no supported MindFS releases at or above %s", minimumTag)
+	}
+	return filtered, client, nil
 }
 
 func validatePaths(source, target string) (string, string, error) {

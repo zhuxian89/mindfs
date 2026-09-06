@@ -1,0 +1,5 @@
+=== RUN   TestOfficialReleaseAssetCompatibility
+    release_compat_test.go:119: official v0.5.0: archive digest validated, 147 asset files match, coverage check and incremental rerun passed
+--- PASS: TestOfficialReleaseAssetCompatibility (4.59s)
+PASS
+ok  	mindfs-cloud/internal/assetsync	6.852s

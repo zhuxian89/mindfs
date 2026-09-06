@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,7 +22,7 @@ func (a *App) handleRegistrationCodeRequest(w http.ResponseWriter, r *http.Reque
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	seconds, err := a.identity.RequestRegistrationCode(r.Context(), input.Email, requestSource(r))
+	seconds, err := a.identity.RequestRegistrationCode(r.Context(), input.Email, a.requestSource(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -63,7 +62,7 @@ func (a *App) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	user, token, err := a.identity.Login(r.Context(), input.Email, input.Password, requestSource(r))
+	user, token, err := a.identity.Login(r.Context(), input.Email, input.Password, a.requestSource(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -82,7 +81,7 @@ func (a *App) handlePasswordResetCodeRequest(w http.ResponseWriter, r *http.Requ
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	seconds, err := a.identity.RequestPasswordResetCode(r.Context(), input.Email, requestSource(r))
+	seconds, err := a.identity.RequestPasswordResetCode(r.Context(), input.Email, a.requestSource(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -177,20 +176,6 @@ func (a *App) requireSameOrigin(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
-}
-
-func requestSource(r *http.Request) string {
-	if value := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); value != "" {
-		return value
-	}
-	if value := strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0]); value != "" {
-		return value
-	}
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil && host != "" {
-		return host
-	}
-	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func userPayload(user store.User) map[string]any {

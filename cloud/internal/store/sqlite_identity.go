@@ -233,7 +233,7 @@ func (s *SQLiteStore) RegisterUser(
 	return existing, nil
 }
 
-func (s *SQLiteStore) CreateUserSession(ctx context.Context, email string, session UserSession, now time.Time) (User, error) {
+func (s *SQLiteStore) CreateUserSession(ctx context.Context, email, verifiedPasswordHash string, session UserSession, now time.Time) (User, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return User{}, err
@@ -245,6 +245,9 @@ func (s *SQLiteStore) CreateUserSession(ctx context.Context, email string, sessi
 			err = ErrNotFound
 		}
 		return User{}, err
+	}
+	if user.PasswordHash != verifiedPasswordHash {
+		return User{}, ErrConflict
 	}
 	session.UserID = user.ID
 	if err := insertUserSession(ctx, tx, session); err != nil {
@@ -295,6 +298,7 @@ func (s *SQLiteStore) ResetUserPassword(ctx context.Context, email string, codeH
 func (s *SQLiteStore) ChangeUserPassword(
 	ctx context.Context,
 	userID string,
+	verifiedPasswordHash string,
 	passwordHash string,
 	session UserSession,
 	now time.Time,
@@ -306,10 +310,11 @@ func (s *SQLiteStore) ChangeUserPassword(
 	defer tx.Rollback()
 	result, err := tx.ExecContext(
 		ctx,
-		"UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ? AND status = 'active'",
+		"UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ? AND status = 'active' AND password_hash = ?",
 		passwordHash,
 		toMillis(now),
 		userID,
+		verifiedPasswordHash,
 	)
 	if err != nil {
 		return err
@@ -319,7 +324,7 @@ func (s *SQLiteStore) ChangeUserPassword(
 		return err
 	}
 	if affected == 0 {
-		return ErrNotFound
+		return ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id = ?", userID); err != nil {
 		return err

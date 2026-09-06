@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+const (
+	maxBindChallenges             = 10000
+	maxNewBindChallengesPerMinute = 120
+	bindChallengeRetention        = 24 * time.Hour
+)
+
 func (s *SQLiteStore) ObserveChallenge(
 	ctx context.Context,
 	codeHash []byte,
@@ -23,6 +29,9 @@ func (s *SQLiteStore) ObserveChallenge(
 
 	challenge, err := getChallenge(ctx, tx, codeHash)
 	if errors.Is(err, ErrNotFound) {
+		if err := checkNewBindChallengeLimits(ctx, tx, now); err != nil {
+			return BindChallenge{}, false, err
+		}
 		challenge = BindChallenge{
 			CodeHash:               bytes.Clone(codeHash),
 			DeviceID:               deviceID,
@@ -73,6 +82,24 @@ func (s *SQLiteStore) ObserveChallenge(
 		return BindChallenge{}, false, err
 	}
 	return challenge, false, nil
+}
+
+func checkNewBindChallengeLimits(ctx context.Context, tx *sql.Tx, now time.Time) error {
+	var total int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT 1 FROM bind_challenges LIMIT ?)", maxBindChallenges).Scan(&total); err != nil {
+		return err
+	}
+	if total >= maxBindChallenges {
+		return ErrRateLimited
+	}
+	var recent int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM bind_challenges WHERE created_at >= ?", toMillis(now.Add(-time.Minute))).Scan(&recent); err != nil {
+		return err
+	}
+	if recent >= maxNewBindChallengesPerMinute {
+		return ErrRateLimited
+	}
+	return nil
 }
 
 func (s *SQLiteStore) GetChallenge(ctx context.Context, codeHash []byte) (BindChallenge, error) {

@@ -21,6 +21,19 @@ func TestLoadRequiresTokenKey(t *testing.T) {
 	}
 }
 
+func TestTrustedProxyConfiguration(t *testing.T) {
+	for _, value := range []string{"", "127.0.0.1/32,::1/128", "10.0.0.0/24"} {
+		if _, err := parseTrustedProxies(value); err != nil {
+			t.Fatalf("valid proxy config %q: %v", value, err)
+		}
+	}
+	for _, value := range []string{"127.0.0.1", "*", "10.0.0.0/99", "proxy.example.com"} {
+		if _, err := parseTrustedProxies(value); err == nil {
+			t.Fatalf("invalid proxy config accepted: %q", value)
+		}
+	}
+}
+
 func TestLoadRejectsMalformedTokenKeys(t *testing.T) {
 	for _, value := range []string{
 		base64.RawURLEncoding.EncodeToString(make([]byte, 31)),

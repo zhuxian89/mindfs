@@ -1,6 +1,8 @@
 {$MINDFS_CLOUD_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy relay:8080
+	reverse_proxy relay:8080 {
+		header_up -CF-Connecting-IP
+	}
 
 	header {
 		X-Content-Type-Options nosniff

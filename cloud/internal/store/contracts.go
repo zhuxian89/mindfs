@@ -108,9 +108,9 @@ type Store interface {
 	DecrementVerificationAttempts(context.Context, string, string, []byte, time.Time) error
 	DeleteVerificationCode(context.Context, string, string, []byte) error
 	RegisterUser(context.Context, User, []byte, UserSession, time.Time) (User, error)
-	CreateUserSession(context.Context, string, UserSession, time.Time) (User, error)
+	CreateUserSession(context.Context, string, string, UserSession, time.Time) (User, error)
 	ResetUserPassword(context.Context, string, []byte, string, time.Time) error
-	ChangeUserPassword(context.Context, string, string, UserSession, time.Time) error
+	ChangeUserPassword(context.Context, string, string, string, UserSession, time.Time) error
 	GetUserByEmail(context.Context, string) (User, error)
 	GetUserBySession(context.Context, []byte, time.Time) (User, UserSession, error)
 	DeleteUserSession(context.Context, []byte) error
