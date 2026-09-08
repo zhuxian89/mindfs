@@ -47,6 +47,16 @@ import {
 } from "./services/api";
 import { reportError } from "./services/error";
 import {
+  loadSendShortcut,
+  persistSendShortcut,
+  type SendShortcut,
+} from "./services/sendShortcut";
+import {
+  loadFontSizePreferences,
+  persistFontSizePreferences,
+  type FontSizePreferences,
+} from "./services/fontSize";
+import {
   fetchFile,
   clearFileCacheForRoot,
   getCachedFile,
@@ -1688,7 +1698,9 @@ export function App({ onGoHome }: AppProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const { isMobile, isTablet } = useResponsive();
   const [mobileEnterKeySends, setMobileEnterKeySends] = useState(loadMobileEnterKeySends);
+  const [sendShortcut, setSendShortcut] = useState<SendShortcut | null>(loadSendShortcut);
   const [sidebarsSwapped, setSidebarsSwapped] = useState(loadSidebarsSwapped);
+  const [fontSizePreferences, setFontSizePreferences] = useState<FontSizePreferences>(loadFontSizePreferences);
   const [gitDiffSideBySide, setGitDiffSideBySide] = useState(loadGitDiffSideBySide);
   const [isLeftOpen, setIsLeftOpen] = useState(() => window.innerWidth >= 768);
   const [isRightOpen, setIsRightOpen] = useState(
@@ -2342,6 +2354,14 @@ export function App({ onGoHome }: AppProps) {
       // Ignore storage failures; the setting can still apply for this session.
     }
   }, [mobileEnterKeySends]);
+
+  useEffect(() => {
+    persistSendShortcut(sendShortcut);
+  }, [sendShortcut]);
+
+  useEffect(() => {
+    persistFontSizePreferences(fontSizePreferences);
+  }, [fontSizePreferences]);
 
   useEffect(() => {
     return () => {
@@ -14354,6 +14374,9 @@ export function App({ onGoHome }: AppProps) {
         leftOpen={isLeftOpen}
         rightOpen={isRightOpen}
         sidebarsSwapped={sidebarsSwapped}
+        fileSidebarFontScale={fontSizePreferences.fileSidebar}
+        mainFontScale={fontSizePreferences.main}
+        sessionSidebarFontScale={fontSizePreferences.sessionSidebar}
         onCloseLeft={() => setIsLeftOpen(false)}
         onCloseRight={() => setIsRightOpen(false)}
         onOpenLeft={() => setIsLeftOpen(true)}
@@ -14437,12 +14460,17 @@ export function App({ onGoHome }: AppProps) {
             showEnterKeySendOption={isMobile}
             enterKeySends={mobileEnterKeySends}
             onEnterKeySendsChange={setMobileEnterKeySends}
+            showSendShortcutOption={!isMobile}
+            sendShortcut={sendShortcut}
+            onSendShortcutChange={setSendShortcut}
             sidebarsSwapped={sidebarsSwapped}
             onSidebarsSwappedChange={setSidebarsSwapped}
             gitDiffSideBySide={gitDiffSideBySide}
             onGitDiffSideBySideChange={setGitDiffSideBySide}
             multiProjectSessionsEnabled={multiProjectSessionsEnabled}
             onMultiProjectSessionsChange={setMultiProjectSessionsEnabled}
+            fontSizePreferences={fontSizePreferences}
+            onFontSizePreferencesChange={setFontSizePreferences}
             onRunAgentLifecycleCommand={handleRunAgentLifecycleCommand}
             onRestartAgent={handleRestartAgent}
             onGoHome={onGoHome}
@@ -14540,6 +14568,7 @@ export function App({ onGoHome }: AppProps) {
               onUpdateQueuedMessage={handleUpdateQueuedMessage}
               onSendQueuedMessageNow={handleSendQueuedMessageNow}
               mobileEnterKeySends={mobileEnterKeySends}
+              sendShortcut={sendShortcut}
               onNewSession={handleNewSession}
               onRequestFileContext={handleRequestFileContext}
               onClearFileContext={handleClearFileContext}
