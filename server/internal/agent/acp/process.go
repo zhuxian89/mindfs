@@ -72,15 +72,16 @@ type activePromptState struct {
 var stderrMessagePattern = regexp.MustCompile(`"message"\s*:\s*"([^"]+)"`)
 
 type sessionState struct {
-	ID            acp.SessionId
-	models        *acp.SessionModelState
-	modes         *acp.SessionModeState
-	configOptions []acp.SessionConfigOption
-	commands      []acp.AvailableCommand
-	contextWindow types.ContextWindow
-	lastUsage     cumulativeTokenUsage
-	onUpdate      func(SessionUpdate)
-	mu            sync.RWMutex
+	ID                     acp.SessionId
+	models                 *acp.SessionModelState
+	modes                  *acp.SessionModeState
+	configOptions          []acp.SessionConfigOption
+	commands               []acp.AvailableCommand
+	contextWindow          types.ContextWindow
+	contextUsageUpdateSeen bool
+	lastUsage              cumulativeTokenUsage
+	onUpdate               func(SessionUpdate)
+	mu                     sync.RWMutex
 }
 
 type cumulativeTokenUsage struct {
@@ -178,7 +179,23 @@ func (s *sessionState) getContextWindow() types.ContextWindow {
 	return s.contextWindow
 }
 
-func (s *sessionState) tokenUsageDelta(usage *acp.Usage) *types.TokenUsage {
+func (s *sessionState) setUsageUpdate(used, size int) {
+	s.mu.Lock()
+	if size > 0 {
+		s.contextWindow.ModelContextWindow = size
+	}
+	s.contextWindow.TotalTokens = max(0, used)
+	s.contextUsageUpdateSeen = true
+	s.mu.Unlock()
+}
+
+func (s *sessionState) hasContextUsageUpdate() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.contextUsageUpdateSeen
+}
+
+func (s *sessionState) tokenUsageForPrompt(agentName string, usage *acp.Usage) *types.TokenUsage {
 	if usage == nil {
 		return nil
 	}
@@ -193,10 +210,15 @@ func (s *sessionState) tokenUsageDelta(usage *acp.Usage) *types.TokenUsage {
 		current.cacheWriteTokens = max(0, *usage.CachedWriteTokens)
 	}
 
-	s.mu.Lock()
-	previous := s.lastUsage
-	s.lastUsage = current
-	s.mu.Unlock()
+	// DSH's ACP adapter resets usage for every prompt. Other agents retain
+	// the existing cumulative-counter behavior until their semantics are verified.
+	var previous cumulativeTokenUsage
+	if agentName != "dsh" {
+		s.mu.Lock()
+		previous = s.lastUsage
+		s.lastUsage = current
+		s.mu.Unlock()
+	}
 
 	inputTokens := cumulativeCounterDelta(current.inputTokens, previous.inputTokens)
 	outputTokens := cumulativeCounterDelta(current.outputTokens, previous.outputTokens)
@@ -302,12 +324,10 @@ func (c *mindfsClient) SessionUpdate(ctx context.Context, params acp.SessionNoti
 		c.proc.mu.Unlock()
 	}
 	if params.Update.UsageUpdate != nil {
-		current := session.getContextWindow()
-		current.ModelContextWindow = params.Update.UsageUpdate.Size
-		if current.TotalTokens == 0 {
-			current.TotalTokens = params.Update.UsageUpdate.Used
-		}
-		session.setContextWindow(current)
+		session.setUsageUpdate(
+			params.Update.UsageUpdate.Used,
+			params.Update.UsageUpdate.Size,
+		)
 	}
 
 	if internalUpdate.Type != "" {
@@ -509,7 +529,7 @@ func (p *Process) Initialize(ctx context.Context) error {
 	resp, err := p.conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
-			Terminal: true,
+			Terminal: false,
 		},
 		ClientInfo: &acp.Implementation{
 			Name:    "mindfs",
@@ -655,10 +675,15 @@ func (p *Process) SendMessage(ctx context.Context, sessionKey, content string) e
 	}
 	var tokenUsage *types.TokenUsage
 	if resp.Usage != nil {
-		current := sess.getContextWindow()
-		current.TotalTokens = resp.Usage.TotalTokens
-		sess.setContextWindow(current)
-		tokenUsage = sess.tokenUsageDelta(resp.Usage)
+		// Some older ACP agents expose no usage_update notification. Keep a
+		// compatibility fallback for those agents, but never let prompt-level
+		// accounting overwrite an authoritative session context update.
+		if !sess.hasContextUsageUpdate() {
+			current := sess.getContextWindow()
+			current.TotalTokens = max(0, resp.Usage.TotalTokens)
+			sess.setContextWindow(current)
+		}
+		tokenUsage = sess.tokenUsageForPrompt(p.agentName, resp.Usage)
 	}
 
 	// Signal completion

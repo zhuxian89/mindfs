@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { normalizePathForRoot, shouldRedirectToRelayNodes } from "./services/fileNavigation";
 import { getViewModeSystemPrompt } from "./renderer/viewCatalog";
 import { Renderer } from "./renderer/Renderer";
 import {
@@ -1129,18 +1130,6 @@ function normalizePath(value: string): string {
   return String(value || "")
     .replace(/\\/g, "/")
     .replace(/^\/+|\/+$/g, "");
-}
-
-function normalizePathForRoot(value: string, rootPath?: string): string {
-  const normalized = normalizePath(value);
-  if (!normalized) return "";
-  const normalizedRoot = normalizePath(rootPath || "");
-  if (!normalizedRoot) return normalized;
-  if (normalized === normalizedRoot) return "";
-  if (normalized.startsWith(`${normalizedRoot}/`)) {
-    return normalized.slice(normalizedRoot.length + 1);
-  }
-  return normalized;
 }
 
 function relativeDisplayPathFromRoot(rootPath: string | undefined, absolutePath: string): string {
@@ -3070,16 +3059,15 @@ export function App({ onGoHome }: AppProps) {
         redirectToRelayLogin();
         return true;
       }
-      if (
-        status === 403 ||
-        status === 404 ||
-        status === 502 ||
-        status === 503 ||
-        code === "forbidden" ||
-        code === "node_not_found" ||
-        code === "node_offline" ||
-        code === "connector_unavailable"
-      ) {
+      if (await shouldRedirectToRelayNodes(status, code, async () => {
+        const nodeID = relayNodeIdFromPathname(window.location.pathname);
+        if (!nodeID) return 200;
+        const response = await fetch(`/n/${encodeURIComponent(nodeID)}/`, {
+          cache: "no-cache",
+          headers: { Accept: "application/json" },
+        });
+        return response.status;
+      })) {
         redirectToRelayNodes();
         return true;
       }
