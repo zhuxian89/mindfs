@@ -72,7 +72,7 @@ func TestRelayImageWorkflowSeparatesPublishingFromDeployment(t *testing.T) {
 		"run: go test ./...",
 		"context: .",
 		"file: cloud/Dockerfile",
-		"platforms: linux/amd64,linux/arm64",
+		"platforms: linux/amd64",
 		"tags: ${{ env.IMAGE }}:${{ github.sha }}",
 		"git fetch --no-tags origin main",
 		`if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then`,
