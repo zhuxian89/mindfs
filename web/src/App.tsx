@@ -13585,6 +13585,16 @@ export function App({ onGoHome }: AppProps) {
           ) : null}
           <FileViewer
             file={file}
+            rootPath={managedRootByIdRef.current[file?.root || ""]?.root_path}
+            onFileOperationComplete={async () => {
+              if (!file?.root) return;
+              const parent = file.path.split("/").slice(0, -1).join("/") || ".";
+              clearFileCacheForRoot(file.root);
+              setEntriesByPath({});
+              await refreshTreeDir(file.root, parent, false);
+              await actionHandlers.open_dir({ root: file.root, path: parent === "." ? file.root : parent, isRoot: parent === ".", forceDirectory: true });
+              void refreshGitStatus(file.root);
+            }}
             editStore={fileEditStore}
             onFileUpdated={(next) => {
               const current = fileRef.current;
@@ -13625,6 +13635,16 @@ export function App({ onGoHome }: AppProps) {
     workspaceView = (
       <DefaultListView
         root={currentRootId || undefined}
+        rootPath={managedRootByIdRef.current[currentRootId || ""]?.root_path}
+        onFileOperationComplete={async () => {
+          if (!currentRootId) return;
+          const parent = (selectedDir || "").split("/").slice(0, -1).join("/") || ".";
+          clearFileCacheForRoot(currentRootId);
+          setEntriesByPath({});
+          await refreshTreeDir(currentRootId, parent, false);
+          await actionHandlers.open_dir({ root: currentRootId, path: parent === "." ? currentRootId : parent, isRoot: parent === ".", forceDirectory: true });
+          void refreshGitStatus(currentRootId);
+        }}
         path={selectedDir || ""}
         entries={currentMainContentView === "file-browser" ? visibleMainEntries : []}
         errorMessage={currentMainContentView === "file-browser" ? mainDirectoryError : ""}
@@ -14533,6 +14553,23 @@ export function App({ onGoHome }: AppProps) {
               </div>
             ) : null}
             <ActionBar
+              onNewSession={() => {
+                const root = currentRootIdRef.current;
+                if (!root) return;
+                setPendingPlanMode(false);
+                selectedSessionRef.current = null;
+                currentSessionRef.current = null;
+                selectedSessionByRootRef.current[root] = null;
+                setSelectedSession(null);
+                setDrawerSessionForRoot(root, null);
+                interactionModeRef.current = "main";
+                setInteractionMode("main");
+                setDrawerOpenForRoot(root, false);
+              }}
+              onSelectProject={(root) => {
+                void actionHandlers.open_dir({ path: root, root, isRoot: true, suppressTreeExpand: true });
+              }}
+              onSelectSession={(session) => { void handleSelectSession(session); }}
               taskGroupBadge={actionBarSessionKey ? <TaskGroupPanel key={`${actionBarSession?.root_id || currentRootId}:${actionBarSessionKey}`} rootId={actionBarSession?.root_id || currentRootId || ""} sessionKey={actionBarSessionKey} renderTask={(detail, close) => renderKanbanTaskCard(detail.task, isTerminalKanbanTask(detail.task) ? t("task.column.done") : t("task.column.running"), detail, true, close)} /> : null}
               status={status}
               agentsVersion={agentsVersion}

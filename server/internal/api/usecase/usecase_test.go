@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,125 @@ import (
 	rootfs "mindfs/server/internal/fs"
 	"mindfs/server/internal/preferences"
 	"mindfs/server/internal/session"
+	"mindfs/server/internal/testutil"
 )
+
+func TestFileOperations(t *testing.T) {
+	for _, directory := range []bool{false, true} {
+		name := "file"
+		if directory {
+			name = "directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := rootfs.NewRootInfo("test", "test", t.TempDir())
+			service := Service{Registry: uploadTestRegistry{root: root}}
+			source := filepath.Join(root.RootPath, "source")
+			contentPath := source
+			if directory {
+				if err := os.Mkdir(source, 0700); err != nil {
+					t.Fatal(err)
+				}
+				contentPath = filepath.Join(source, "child")
+			}
+			if err := os.WriteFile(contentPath, []byte("keep content"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			run := func(path, action, name, destination string) error {
+				return service.OperateFile(FileOperationInput{Root: root.ID, Path: path, Action: action, Name: name, Destination: destination})
+			}
+			if err := run(".", "delete", "", ""); err == nil {
+				t.Fatal("root deletion allowed")
+			}
+			if err := run("../outside", "delete", "", ""); err == nil {
+				t.Fatal("traversal allowed")
+			}
+			if err := run("source", "rename", "../outside", ""); err == nil {
+				t.Fatal("invalid name allowed")
+			}
+			if directory {
+				if err := run("source", "move", "", source); err == nil {
+					t.Fatal("move into self allowed")
+				}
+			}
+			if err := os.WriteFile(filepath.Join(root.RootPath, "existing"), []byte("existing"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := run("source", "rename", "existing", ""); !errors.Is(err, os.ErrExist) {
+				t.Fatalf("conflict: %v", err)
+			}
+			if err := run("source", "rename", "renamed", ""); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(root.RootPath, "target")
+			if err := os.Mkdir(target, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := run("renamed", "move", "", target); err != nil {
+				t.Fatal(err)
+			}
+			moved := filepath.Join(target, "renamed")
+			if directory {
+				moved = filepath.Join(moved, "child")
+			}
+			if content, err := os.ReadFile(moved); err != nil || string(content) != "keep content" {
+				t.Fatalf("content lost: %q %v", content, err)
+			}
+			if err := run("target/renamed", "delete", "", ""); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(target, "renamed")); !os.IsNotExist(err) {
+				t.Fatalf("not deleted: %v", err)
+			}
+		})
+	}
+}
+
+func TestFileOperationSymlinkAndExternalMove(t *testing.T) {
+	root := rootfs.NewRootInfo("test", "test", t.TempDir())
+	service := Service{Registry: uploadTestRegistry{root: root}}
+	external := t.TempDir()
+	target := filepath.Join(external, "keep")
+	if err := os.WriteFile(target, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root.RootPath, "link")); err != nil {
+		t.Skip(err)
+	}
+	if err := service.OperateFile(FileOperationInput{Root: root.ID, Path: "link", Action: "delete"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("deleted link target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root.RootPath, "move"), []byte("move"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.OperateFile(FileOperationInput{Root: root.ID, Path: "move", Action: "move", Destination: external}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "move")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFileOperationUsesLiteralNames(t *testing.T) {
+	root := rootfs.NewRootInfo("test", "test", t.TempDir())
+	service := Service{Registry: uploadTestRegistry{root: root}}
+	for _, name := range []string{"report", "report#1"} {
+		if err := os.WriteFile(filepath.Join(root.RootPath, name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := service.OperateFile(FileOperationInput{Root: root.ID, Path: "report#1", Action: "delete"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root.RootPath, "report#1")); !os.IsNotExist(err) {
+		t.Fatalf("literal file not deleted: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(root.RootPath, "report")); err != nil || string(content) != "report" {
+		t.Fatalf("unrelated file modified: %q, %v", content, err)
+	}
+}
 
 func TestSaveUploadedFilesDefaultsToAttachmentDirAndRenamesConflicts(t *testing.T) {
 	rootDir := t.TempDir()
@@ -1216,7 +1335,7 @@ func TestRenameManagedDirRollsBackDirectoryWhenRegistryFails(t *testing.T) {
 
 func TestSkillCandidateProviderSearch(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "skills", "status", "SKILL.md"), "---\nname: status\ndescription: Home status skill\n---\n")
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "review", "SKILL.md"), "---\nname: review\ndescription: Shared review skill\n---\n")
@@ -1252,7 +1371,7 @@ func TestSkillCandidateProviderSearch(t *testing.T) {
 
 func TestSkillCandidateProviderSearchIncludesCodexPluginCacheSkills(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "plugins", "cache", "openai-primary-runtime", "documents", "26.1.0", "skills", "documents", "SKILL.md"), "---\nname: documents\ndescription: Old documents skill\n---\n")
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "plugins", "cache", "openai-primary-runtime", "documents", "26.10.0", "skills", "documents", "SKILL.md"), "---\nname: documents\ndescription: Current documents skill\n---\n")
@@ -1278,7 +1397,7 @@ func TestSkillCandidateProviderSearchIncludesCodexPluginCacheSkills(t *testing.T
 
 func TestSkillCandidateProviderSearchFollowsSymlinkedSkillDir(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	ssotDir := t.TempDir()
 	targetDir := filepath.Join(ssotDir, "linked")
@@ -1310,7 +1429,7 @@ func TestSkillCandidateProviderSearchFollowsSymlinkedSkillDir(t *testing.T) {
 
 func TestSkillCandidateProviderSearchExpandsNamespacedSkillBundle(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	ssotDir := t.TempDir()
 	targetDir := filepath.Join(ssotDir, "aegis-skills")
@@ -1350,7 +1469,7 @@ func TestSkillCandidateProviderSearchExpandsNamespacedSkillBundle(t *testing.T) 
 
 func TestSkillCandidateProviderSearchMatchesNamespacedChildName(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "aegis", "brainstorming", "SKILL.md"), "---\nname: brainstorming\ndescription: Aegis brainstorm\n---\n")
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
@@ -1370,7 +1489,7 @@ func TestSkillCandidateProviderSearchMatchesNamespacedChildName(t *testing.T) {
 
 func TestSkillCandidateProviderSearchSkipsNonDirectoryScanPath(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex"), "not a directory")
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "review", "SKILL.md"), "---\nname: review\ndescription: Shared review skill\n---\n")
@@ -1391,8 +1510,7 @@ func TestSkillCandidateProviderSearchSkipsNonDirectoryScanPath(t *testing.T) {
 
 func TestListLocalDirsDefaultsEmptyPathToHome(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
-	t.Setenv("USERPROFILE", homeDir)
+	testutil.IsolateUserDirs(t, homeDir)
 	mustWriteFile(t, filepath.Join(homeDir, "project-a", "README.md"), "a")
 	if err := os.MkdirAll(filepath.Join(homeDir, "project-b"), 0o755); err != nil {
 		t.Fatalf("mkdir project-b: %v", err)
@@ -1757,6 +1875,45 @@ func TestSessionNameRunnerSkipsWithoutAgentOrPool(t *testing.T) {
 			got, err := sessionNameRunner(context.Background(), nil, "/tmp/root", tc.input)
 			if err != nil || got != "" {
 				t.Fatalf("sessionNameRunner = (%q, %v), want empty nil", got, err)
+			}
+		})
+	}
+}
+
+func TestAssistantAuxLineBeforeFollowingText(t *testing.T) {
+	for _, tc := range []struct {
+		before string
+		line   int
+	}{
+		{"", 0},
+		{"\n\n", 0},
+		{"说明", 1},
+		{"说明\n", 1},
+		{"说明\n\n", 1},
+		{"第一行\n第二行\n", 2},
+		{"第一行\n\n第二行\n\n", 3},
+	} {
+		before := tc.before
+		t.Run(fmt.Sprintf("prefix_%q", before), func(t *testing.T) {
+			line := currentAssistantLine(before)
+			if line != tc.line {
+				t.Fatalf("aux line = %d, want %d", line, tc.line)
+			}
+			content := appendResponseChunk(before, string(agenttypes.EventTypeToolCall), "工具后的回复\n后续内容")
+			if before == "" || strings.HasSuffix(before, "\n") {
+				if content != before+"工具后的回复\n后续内容" {
+					t.Fatalf("response whitespace changed: %q", content)
+				}
+			}
+			// Match the history viewer's line-based split around an auxiliary event.
+			lines := strings.Split(content, "\n")
+			preceding := strings.Join(lines[:line], "\n")
+			following := strings.Join(lines[line:], "\n")
+			if strings.TrimRight(preceding, "\n") != strings.TrimRight(before, "\n") {
+				t.Fatalf("text before tool = %q, want %q", preceding, before)
+			}
+			if strings.TrimLeft(following, "\n") != "工具后的回复\n后续内容" {
+				t.Fatalf("text after tool = %q", following)
 			}
 		})
 	}
