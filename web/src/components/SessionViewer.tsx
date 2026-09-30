@@ -1,8 +1,9 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { useSessionStream, type TimelineItem } from "../hooks/useSessionStream";
 import type { TodoUpdate } from "../services/session";
 import { ThinkingBlock } from "./stream/ThinkingBlock";
-import { ToolCallCard, renderToolIcon } from "./stream/ToolCallCard";
+import { ToolCallCard, renderToolIcon, type ToolCallViewCache } from "./stream/ToolCallCard";
 import { AgentIcon } from "./AgentIcon";
 import { InlineTokenText } from "./InlineTokenText";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -386,16 +387,6 @@ function ContextWindowBadge({
       </span>
     </span>
   );
-}
-
-function previousUserTimestamp(timeline: TimelineItem[], index: number): string {
-  for (let i = index - 1; i >= 0; i -= 1) {
-    const item = timeline[i];
-    if (item.type === "user_text") {
-      return item.timestamp || "";
-    }
-  }
-  return "";
 }
 
 const formatTime = (isoString: string | undefined, locale: Locale) => {
@@ -1119,6 +1110,53 @@ function SessionViewerInner({
   const [userSummaryPinnedOpen, setUserSummaryPinnedOpen] = useState(false);
   const [currentUserMessageIndex, setCurrentUserMessageIndex] = useState(0);
   const viewportStickFrameRef = useRef<number | null>(null);
+  const toolViewCache = useMemo<ToolCallViewCache>(
+    () => ({ expanded: new Map(), details: new Map() }),
+    [rootId, sessionKey],
+  );
+  const timelineNavigation = useMemo(() => {
+    let userIndex = 0;
+    let previousTimestamp = "";
+    const seqIndices = new Map<number, number>();
+    const userIndices: number[] = [];
+    const pendingQuestionIndices: number[] = [];
+    const rows = timeline.map((item, index) => {
+      const previousUserTime = previousTimestamp;
+      if (item.type === "user_text") {
+        userIndex += 1;
+        previousTimestamp = item.timestamp || "";
+        userIndices.push(index);
+      }
+      if ("seq" in item && item.seq && !seqIndices.has(item.seq)) seqIndices.set(item.seq, index);
+      // Keep unanswered forms mounted so scrolling cannot discard a user's draft.
+      if (item.type === "tool" && item.toolCall.kind === "ask_user" &&
+          ["running", "pending", "in_progress"].includes(item.toolCall.status || "")) {
+        pendingQuestionIndices.push(index);
+      }
+      return { userIndex, previousUserTime };
+    });
+    return { rows, seqIndices, userIndices, pendingQuestionIndices };
+  }, [timeline]);
+  const virtualized = timeline.length > 100;
+  const virtualizer = useVirtualizer({
+    count: timeline.length,
+    getScrollElement: () => scrollRef.current,
+    enabled: virtualized,
+    getItemKey: (index) => `${rootId}:${sessionKey}:${timeline[index].id || index}`,
+    estimateSize: (index) => timeline[index].type === "tool" ? 40 : 160,
+    overscan: 8,
+    rangeExtractor: (range) => Array.from(new Set([
+      ...defaultRangeExtractor(range), ...timelineNavigation.pendingQuestionIndices,
+    ])).sort((a, b) => a - b),
+    onChange: (instance) => {
+      if (!shouldStickToBottomRef.current || instance.isScrolling) return;
+      if (viewportStickFrameRef.current !== null) cancelAnimationFrame(viewportStickFrameRef.current);
+      viewportStickFrameRef.current = requestAnimationFrame(() => {
+        viewportStickFrameRef.current = null;
+        if (shouldStickToBottomRef.current) stickSessionToBottom();
+      });
+    },
+  });
 
   const cancelTargetSeqScroll = () => {
     if (targetSeqFrameRef.current !== null) {
@@ -1200,6 +1238,10 @@ function SessionViewerInner({
     if (!container) {
       return 0;
     }
+    if (virtualized) {
+      const first = virtualizer.getVirtualItems().find((item) => item.end >= container.scrollTop - 24);
+      return first ? Math.max(1, timelineNavigation.rows[first.index]?.userIndex || 0) : 0;
+    }
     const nodes = Array.from(
       container.querySelectorAll<HTMLElement>("[data-user-message-index]"),
     );
@@ -1239,13 +1281,25 @@ function SessionViewerInner({
       lastBeforeViewport ||
       Number(nodes[0]?.dataset.userMessageIndex || 0)
     );
-  }, []);
+  }, [virtualized, virtualizer, timelineNavigation]);
 
   const refreshCurrentUserMessageIndex = useCallback(() => {
     setCurrentUserMessageIndex(readCurrentUserMessageIndex());
   }, [readCurrentUserMessageIndex]);
 
   const scrollToUserMessageSummary = (index: number) => {
+    if (virtualized) {
+      const target = timelineNavigation.userIndices[index - 1];
+      if (target === undefined) return;
+      shouldStickToBottomRef.current = false;
+      cancelTargetSeqScroll();
+      virtualizer.scrollToIndex(target, { align: "center" });
+      setShowJumpToLatest(true);
+      setUserSummaryPinnedOpen(false);
+      setUserSummaryHoverOpen(false);
+      setCurrentUserMessageIndex(index);
+      return;
+    }
     const container = scrollRef.current;
     if (!container) {
       return;
@@ -1394,6 +1448,31 @@ function SessionViewerInner({
       return;
     }
     let lastScrollTop = el.scrollTop;
+    let lastScrollHeight = el.scrollHeight;
+    let lastClientHeight = el.clientHeight;
+    let touchY: number | null = null;
+    const pauseFollowing = () => {
+      shouldStickToBottomRef.current = false;
+      setShowJumpToLatest(true);
+      cancelTargetSeqScroll();
+      if (viewportStickFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportStickFrameRef.current);
+        viewportStickFrameRef.current = null;
+      }
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) pauseFollowing();
+    };
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const nextY = event.touches.length === 1 ? event.touches[0].clientY : null;
+      // Moving the finger down scrolls toward older messages.
+      if (touchY !== null && nextY !== null && nextY > touchY) pauseFollowing();
+      touchY = nextY;
+    };
+    const onTouchEnd = () => { touchY = null; };
     const updateStickiness = () => {
       const viewportGap = window.visualViewport
         ? window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
@@ -1403,21 +1482,38 @@ function SessionViewerInner({
       const isNearBottom = distanceFromBottom < 40;
       const movedUp = el.scrollTop < lastScrollTop;
       const movedDown = el.scrollTop > lastScrollTop;
-      if (isNearBottom) {
-        shouldStickToBottomRef.current = true;
-      } else if (movedUp) {
+      const geometryChanged = el.scrollHeight !== lastScrollHeight || el.clientHeight !== lastClientHeight;
+      // Upward motion wins even inside the bottom threshold. Stationary
+      // measurements must not resume following after a wheel/touch gesture.
+      // Measuring a virtual row can shrink the document and clamp scrollTop;
+      // that is not an upward reading gesture.
+      if (movedUp && !geometryChanged) {
         shouldStickToBottomRef.current = false;
-      } else if (movedDown && distanceFromBottom < 200) {
+      } else if (movedDown && isNearBottom) {
         shouldStickToBottomRef.current = true;
       }
       setShowJumpToLatest(!shouldStickToBottomRef.current);
       refreshCurrentUserMessageIndex();
       lastScrollTop = el.scrollTop;
+      lastScrollHeight = el.scrollHeight;
+      lastClientHeight = el.clientHeight;
     };
     updateStickiness();
-    el.addEventListener("scroll", updateStickiness, { passive: true });
+    // Observe intent and position before virtualizer scroll callbacks rerender.
+    const options = { passive: true, capture: true };
+    el.addEventListener("scroll", updateStickiness, options);
+    el.addEventListener("wheel", onWheel, options);
+    el.addEventListener("touchstart", onTouchStart, options);
+    el.addEventListener("touchmove", onTouchMove, options);
+    el.addEventListener("touchend", onTouchEnd, options);
+    el.addEventListener("touchcancel", onTouchEnd, options);
     return () => {
-      el.removeEventListener("scroll", updateStickiness);
+      el.removeEventListener("scroll", updateStickiness, true);
+      el.removeEventListener("wheel", onWheel, true);
+      el.removeEventListener("touchstart", onTouchStart, true);
+      el.removeEventListener("touchmove", onTouchMove, true);
+      el.removeEventListener("touchend", onTouchEnd, true);
+      el.removeEventListener("touchcancel", onTouchEnd, true);
     };
   }, [refreshCurrentUserMessageIndex, sessionKey]);
 
@@ -1432,6 +1528,16 @@ function SessionViewerInner({
     }
     const container = scrollRef.current;
     if (!container || !timeline.length) {
+      return;
+    }
+    if (virtualized) {
+      const index = timelineNavigation.seqIndices.get(targetSeq);
+      if (index === undefined) return;
+      targetSeqScrollKeyRef.current = scrollKey;
+      shouldStickToBottomRef.current = false;
+      cancelTargetSeqScroll();
+      virtualizer.scrollToIndex(index, { align: "center" });
+      setShowJumpToLatest(true);
       return;
     }
     const node = container.querySelector<HTMLElement>(
@@ -1478,7 +1584,7 @@ function SessionViewerInner({
       }, delay);
       targetSeqTimerRefs.current.push(timer);
     });
-  }, [sessionKey, targetSeq, targetSeqRequestKey, timeline]);
+  }, [sessionKey, targetSeq, targetSeqRequestKey, timeline, virtualized, virtualizer, timelineNavigation]);
 
   const rawRelated = session?.related_files || (session as any)?.outputs || [];
   const relatedFiles = (Array.isArray(rawRelated) ? rawRelated : [])
@@ -1673,11 +1779,15 @@ function SessionViewerInner({
     idx: number,
     spacing: string = "0",
   ) => {
-    const timelineItemKey = item.id || `${item.type}-${idx}`;
+    const timelineItemKey = `${rootId}:${sessionKey}:${item.id || `${item.type}-${idx}`}`;
     if (item.type === "thought") {
       return (
         <div key={timelineItemKey} style={{ marginTop: spacing }}>
-          <ThinkingBlock content={item.content || ""} defaultExpanded={false} />
+          <ThinkingBlock
+            content={item.content || ""}
+            defaultExpanded={toolViewCache.expanded.get(`thought:${timelineItemKey}`) ?? false}
+            onExpandedChange={(expanded) => toolViewCache.expanded.set(`thought:${timelineItemKey}`, expanded)}
+          />
         </div>
       );
     }
@@ -1715,7 +1825,9 @@ function SessionViewerInner({
               callId={tc.callId || ""}
               status={tc.status || "running"}
               content={tc.content}
-              result={formatToolCallFallbackResult(tc)}
+              getFallbackResult={formatToolCallFallbackResult}
+              viewCache={toolViewCache}
+              viewCacheKey={timelineItemKey}
               locations={tc.locations}
               meta={tc.meta}
               rootPath={rootPath || undefined}
@@ -1753,7 +1865,7 @@ function SessionViewerInner({
     }
     const isUser = item.type === "user_text";
     const userMessageIndex = isUser
-      ? timeline.slice(0, idx + 1).filter((timelineItem) => timelineItem.type === "user_text").length
+      ? timelineNavigation.rows[idx].userIndex
       : undefined;
     const next = idx + 1 < timeline.length ? timeline[idx + 1] : null;
     const hasFollowingAssistantFlow =
@@ -1786,7 +1898,7 @@ function SessionViewerInner({
       ? formatAssistantExchangeMeta(item, agents)
       : "";
     const assistantDurationLabel = !isUser
-      ? formatSessionDuration(previousUserTimestamp(timeline, idx), item.timestamp)
+      ? formatSessionDuration(timelineNavigation.rows[idx].previousUserTime, item.timestamp)
       : "";
     const canForkAgentMessage = !isUser && Number(item.seq || 0) > 0 && !!onForkAgentMessage;
     return (
@@ -2597,7 +2709,20 @@ function SessionViewerInner({
                 ))}
               </div>
             ) : null}
-            {timeline.map((item, idx) =>
+            {virtualized ? (
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%", overflowAnchor: "none" }}>
+                {virtualizer.getVirtualItems().map((row) => (
+                  <div
+                    key={row.key}
+                    data-index={row.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)`, display: "flex", flexDirection: "column" }}
+                  >
+                    {renderTimelineItem(timeline[row.index], row.index, timelineItemSpacing(row.index > 0 ? timeline[row.index - 1] : null, timeline[row.index]))}
+                  </div>
+                ))}
+              </div>
+            ) : timeline.map((item, idx) =>
               renderTimelineItem(
                 item,
                 idx,
