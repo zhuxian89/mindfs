@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mindfs/server/internal/agent"
@@ -41,10 +42,12 @@ import (
 
 // HTTPHandler provides REST endpoints for health, tree, file, and action.
 type HTTPHandler struct {
-	AppContext    *AppContext
-	StaticDir     string
-	Version       string
-	LocalCLIToken string
+	AppContext     *AppContext
+	StaticDir      string
+	Version        string
+	LocalCLIToken  string
+	pairingLimiter pairingLimiter
+	UITitle        string
 }
 
 type protectedResponseWriter struct {
@@ -66,6 +69,9 @@ const (
 	e2eeTSHeaderName      = "X-MindFS-TS"
 	localCLIHeaderName    = "X-MindFS-Local-CLI-Token"
 	requestProofMaxSkew   = 5 * time.Minute
+	pairingInterval       = 3 * time.Second
+	pairingMaxInFlight    = 4
+	pairingRequestTimeout = 10 * time.Second
 )
 
 var indexResourceRefPattern = regexp.MustCompile(`(?i)\b(?:src|href)\s*=\s*["']([^"']+)["']`)
@@ -330,6 +336,8 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Delete("/api/prompts", h.protectedEndpoint(h.handlePromptDelete))
 	r.Get("/api/sessions", h.protectedEndpoint(h.handleSessions))
 	r.Get("/api/preferences/session-naming", h.protectedEndpoint(h.handleSessionNamingPreferenceGet))
+	r.Get("/api/nodes", h.protectedEndpoint(h.handleLauncherNodes))
+	r.Put("/api/nodes", h.protectedEndpoint(h.handleLauncherNodes))
 	r.Put("/api/preferences/session-naming", h.protectedEndpoint(h.handleSessionNamingPreferencePut))
 	r.Get("/api/preferences/idle-session-resource-release", h.protectedEndpoint(h.handleIdleSessionResourceReleasePreferenceGet))
 	r.Put("/api/preferences/idle-session-resource-release", h.protectedEndpoint(h.handleIdleSessionResourceReleasePreferencePut))
@@ -344,9 +352,11 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Post("/api/sessions/import", h.protectedEndpoint(h.handleExternalSessionImport))
 	r.Post("/api/sessions/import/batch", h.protectedEndpoint(h.handleExternalSessionImportBatch))
 	r.Post("/api/sessions/fork", h.protectedEndpoint(h.handleSessionFork))
+	r.Post("/api/sessions/edit", h.protectedEndpoint(h.handleSessionEdit))
 	r.Get("/api/sessions/{key}/toolcalls/{callID}", h.protectedEndpoint(h.handleSessionToolCallGet))
 	r.Post("/api/sessions/{key}/sync", h.protectedEndpoint(h.handleSessionSync))
 	r.Get("/api/sessions/{key}", h.protectedEndpoint(h.handleSessionGet))
+	r.Get("/api/sessions/{key}/log-path", h.protectedEndpoint(h.handleSessionLogPathGet))
 	r.Post("/api/sessions/{key}/messages", h.protectedEndpoint(h.handleSessionUserMessage))
 	r.Get("/api/sessions/{key}/related-files", h.protectedEndpoint(h.handleSessionRelatedFilesGet))
 	r.Post("/api/sessions/{key}/pin", h.protectedEndpoint(h.handleSessionPin))
@@ -826,6 +836,7 @@ func (h *HTTPHandler) handleExternalSessionImportBatch(w http.ResponseWriter, r 
 }
 
 func (h *HTTPHandler) handleSessionGet(w http.ResponseWriter, r *http.Request) {
+	historyRevision, _ := strconv.Atoi(r.URL.Query().Get("history_revision"))
 	rootID := r.URL.Query().Get("root")
 	key := chi.URLParam(r, "key")
 	if strings.TrimSpace(key) == "" {
@@ -851,13 +862,17 @@ func (h *HTTPHandler) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out, err := uc.GetSession(r.Context(), usecase.GetSessionInput{
-		RootID: rootID,
-		Key:    key,
-		Seq:    afterSeq,
+		RootID:          rootID,
+		Key:             key,
+		Seq:             afterSeq,
+		HistoryRevision: historyRevision,
 	})
 	if err != nil {
 		respondError(w, http.StatusNotFound, err)
 		return
+	}
+	if out.HistoryRevision != historyRevision {
+		afterSeq = 0
 	}
 	contextWindow, _ := uc.GetSessionContextWindow(r.Context(), usecase.GetSessionContextWindowInput{
 		RootID: rootID,
@@ -871,7 +886,23 @@ func (h *HTTPHandler) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, h.sessionResponse(out, pendingUser, contextWindow, exchangeAux))
 }
 
+func (h *HTTPHandler) handleSessionLogPathGet(w http.ResponseWriter, r *http.Request) {
+	out, err := h.service().GetSessionLogPath(r.Context(), usecase.GetSessionInput{
+		RootID: r.URL.Query().Get("root"),
+		Key:    chi.URLParam(r, "key"),
+	})
+	if err != nil {
+		respondError(w, http.StatusNotFound, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{
+		"path":             out.Path,
+		"agent_session_id": out.AgentSessionID,
+	})
+}
+
 func (h *HTTPHandler) handleSessionSync(w http.ResponseWriter, r *http.Request) {
+	historyRevision, _ := strconv.Atoi(r.URL.Query().Get("history_revision"))
 	rootID := r.URL.Query().Get("root")
 	key := chi.URLParam(r, "key")
 	if strings.TrimSpace(key) == "" {
@@ -893,13 +924,17 @@ func (h *HTTPHandler) handleSessionSync(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	out, err := uc.GetSession(r.Context(), usecase.GetSessionInput{
-		RootID: rootID,
-		Key:    key,
-		Seq:    afterSeq,
+		RootID:          rootID,
+		Key:             key,
+		Seq:             afterSeq,
+		HistoryRevision: historyRevision,
 	})
 	if err != nil {
 		respondError(w, http.StatusNotFound, err)
 		return
+	}
+	if out.HistoryRevision != historyRevision {
+		afterSeq = 0
 	}
 	contextWindow, _ := uc.GetSessionContextWindow(r.Context(), usecase.GetSessionContextWindowInput{
 		RootID: rootID,
@@ -1171,6 +1206,7 @@ func (h *HTTPHandler) sessionResponse(
 		"name":                s.Name,
 		"exchanges":           exchanges,
 		"exchange_aux":        auxPayload,
+		"history_revision":    s.HistoryRevision,
 		"related_files":       s.RelatedFiles,
 		"related_worktree":    s.RelatedWorktree,
 		"context_window":      contextWindow,
@@ -1505,11 +1541,13 @@ func (h *HTTPHandler) handleFrontend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	content := indexHTML
 	if h.shouldRewriteRelayedAssets(r) {
-		w.Write([]byte(rewriteRelayedFrontendContent(indexHTML)))
-		return
+		content = rewriteRelayedFrontendContent(content)
+	} else {
+		content = renderFallbackFrontend(content, frontendAssetMissingNotice(r.URL.Path))
 	}
-	w.Write([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(r.URL.Path))))
+	w.Write(h.applyUITitle([]byte(content)))
 }
 
 func (h *HTTPHandler) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -1571,20 +1609,34 @@ func (h *HTTPHandler) serveFrontendIndex(w http.ResponseWriter, r *http.Request,
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(r.URL.Path))))
+		w.Write(h.applyUITitle([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(r.URL.Path)))))
 		return
 	}
 	if missing := missingFrontendIndexResource(staticDir, content); missing != "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(missing))))
+		w.Write(h.applyUITitle([]byte(renderFallbackFrontend(indexHTML, frontendAssetMissingNotice(missing)))))
 		return
 	}
+	content = h.applyUITitle(content)
 	if h.shouldRewriteRelayedAssets(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(rewriteRelayedFrontendContent(string(content))))
 		return
 	}
-	http.ServeFile(w, r, indexPath)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(content)
+}
+
+// applyUITitle swaps the page <title> for the -title flag (e.g. MindFS-TX) so
+// multiple instances can be told apart in the browser tab. Empty or the
+// default value leaves the served HTML untouched.
+func (h *HTTPHandler) applyUITitle(content []byte) []byte {
+	title := strings.TrimSpace(h.UITitle)
+	if title == "" || title == "MindFS" {
+		return content
+	}
+	replacement := []byte("<title>" + htmpl.HTMLEscapeString(title) + "</title>")
+	return bytes.Replace(content, []byte("<title>MindFS</title>"), replacement, 1)
 }
 
 func missingFrontendIndexResource(staticDir string, indexContent []byte) string {
@@ -2575,12 +2627,55 @@ func (h *HTTPHandler) handleRelayTips(w http.ResponseWriter, _ *http.Request) {
 	respondJSON(w, http.StatusOK, h.AppContext.GetRelayTipsService().Get())
 }
 
+// pairingLimiter bounds work per handler, without retaining client identities or
+// authentication failures. Admitted requests are spaced at least three seconds apart.
+type pairingLimiter struct {
+	mu       sync.Mutex
+	next     time.Time
+	inFlight int
+}
+
+func (l *pairingLimiter) begin(now time.Time) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delay := max(0, l.next.Sub(now))
+	if l.inFlight >= pairingMaxInFlight {
+		delay = max(delay, time.Second)
+	}
+	if delay > 0 {
+		return false, delay
+	}
+	l.next = now.Add(pairingInterval)
+	l.inFlight++
+	return true, 0
+}
+
+func (l *pairingLimiter) finish() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.inFlight--
+}
+
 func (h *HTTPHandler) handleE2EEOpen(w http.ResponseWriter, r *http.Request) {
+	// Keep the deadline through net/http's post-handler body drain, including
+	// rejected requests. net/http resets it for the next keep-alive request.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pairingRequestTimeout))
+	w.Header().Set("Cache-Control", "no-store")
 	manager := h.AppContext.GetE2EEManager()
 	if manager == nil || !manager.Enabled() {
 		respondError(w, http.StatusForbidden, errServiceUnavailable("e2ee_required"))
 		return
 	}
+	if allowed, delay := h.pairingLimiter.begin(time.Now()); !allowed {
+		seconds := max(1, int((delay+time.Second-1)/time.Second))
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		respondJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":       "e2ee_rate_limited",
+			"retry_after": seconds,
+		})
+		return
+	}
+	defer h.pairingLimiter.finish()
 	var req struct {
 		ClientID    string `json:"client_id"`
 		NodeID      string `json:"node_id"`

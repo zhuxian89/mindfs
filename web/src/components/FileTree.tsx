@@ -65,6 +65,16 @@ import {
   type SendShortcut,
 } from "../services/sendShortcut";
 import {
+  BLUE_RING_ACTION_LABEL_KEYS,
+  BLUE_RING_ACTION_OPTIONS,
+  BLUE_RING_GESTURES,
+  BLUE_RING_GESTURE_LABEL_KEYS,
+  normalizeBlueRingGestureConfig,
+  type BlueRingAction,
+  type BlueRingGesture,
+  type BlueRingGestureConfig,
+} from "../services/quickSwitch";
+import {
   changeFontSize,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -195,6 +205,10 @@ type FileTreeProps = {
   onSendShortcutChange?: (shortcut: SendShortcut | null) => void;
   sidebarsSwapped?: boolean;
   onSidebarsSwappedChange?: (enabled: boolean) => void;
+  blueRingGestures?: BlueRingGestureConfig;
+  onBlueRingGesturesChange?: (config: BlueRingGestureConfig) => void;
+  /** Task templates for the "newTask" quick action binding. */
+  taskTemplates?: Array<{ id: string; name: string }>;
   gitDiffSideBySide?: boolean;
   onGitDiffSideBySideChange?: (enabled: boolean) => void;
   multiProjectSessionsEnabled?: boolean;
@@ -1486,6 +1500,9 @@ export function FileTree({
   onSendShortcutChange,
   sidebarsSwapped = false,
   onSidebarsSwappedChange,
+  blueRingGestures,
+  taskTemplates,
+  onBlueRingGesturesChange,
   gitDiffSideBySide = false,
   onGitDiffSideBySideChange,
   multiProjectSessionsEnabled = false,
@@ -1540,6 +1557,9 @@ export function FileTree({
   const [sendShortcutOpen, setSendShortcutOpen] = React.useState(false);
   const [sendShortcutDraft, setSendShortcutDraft] = React.useState<SendShortcut | null>(sendShortcut);
   const [sendShortcutError, setSendShortcutError] = React.useState("");
+  const [blueRingMenuOpen, setBlueRingMenuOpen] = React.useState(false);
+  const blueRingPopoverRef = React.useRef<HTMLDivElement | null>(null);
+  const [blueRingAgents, setBlueRingAgents] = React.useState<AgentStatus[]>([]);
   const [idleReleaseHours, setIdleReleaseHours] = React.useState("72");
   const [idleReleaseBusy, setIdleReleaseBusy] = React.useState(false);
   const [idleReleaseError, setIdleReleaseError] = React.useState("");
@@ -1852,7 +1872,7 @@ export function FileTree({
     !!relayActionLabel ||
     !!relayActionHelp ||
     shouldShowRelayTip ||
-    (isNativeApp && !!onGoHome) ||
+    !!onGoHome ||
     shouldShowInstallButton ||
     shouldShowInstallHelp;
 
@@ -2047,6 +2067,51 @@ export function FileTree({
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [sendShortcutOpen]);
 
+  React.useEffect(() => {
+    if (!blueRingMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!blueRingPopoverRef.current?.contains(event.target as Node)) {
+        setBlueRingMenuOpen(false);
+      }
+    };
+    // mousedown 而非 pointerdown：ProviderModelSelect 的 portal 菜单只挡了 mousedown，
+    // pointerdown 会先于它触发，把设置弹层直接关掉、选项永远点不中。
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [blueRingMenuOpen]);
+
+  React.useEffect(() => {
+    if (!blueRingMenuOpen) return;
+    // 每次打开都软刷新：先展示旧列表，拿到新列表后替换，同一面板里新装的 Agent 也能立刻被绑定
+    let active = true;
+    fetchAgents(true)
+      .then((items) => {
+        if (active) setBlueRingAgents(items);
+      })
+      .catch(() => {
+        // The picker stays empty; reopening the settings retries.
+      });
+    return () => { active = false; };
+  }, [blueRingMenuOpen]);
+
+  // Agent 列表晚于绑定时（首次打开面板），给还没指定 pick 的 agentPick 手势补默认值。
+  // 每个手势只补一次：之后用户主动清空 pick 不应被自动填回。
+  const blueRingAutoFilledRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (blueRingAgents.length === 0) return;
+    const config = normalizeBlueRingGestureConfig(blueRingGestures);
+    const missing = (Object.entries(config.actions) as Array<[BlueRingGesture, BlueRingAction]>)
+      .filter(([gesture, action]) => action === "agentPick" && !config.agentPicks?.[gesture] && !blueRingAutoFilledRef.current.has(gesture));
+    const [firstMissing] = missing.map(([gesture]) => gesture);
+    if (!firstMissing) return;
+    const firstAgent = blueRingAgents.find((item) => item.name)?.name;
+    if (!firstAgent) return;
+    for (const [gesture] of missing) blueRingAutoFilledRef.current.add(gesture);
+    const nextPicks: Record<string, string> = { ...(config.agentPicks || {}) };
+    for (const [gesture] of missing) nextPicks[gesture] = firstAgent;
+    onBlueRingGesturesChange?.({ ...config, agentPicks: nextPicks });
+  }, [blueRingAgents, blueRingGestures, onBlueRingGesturesChange]);
+
   const openAgentConfigFlow = React.useCallback((flow: AgentConfigFlow) => {
 	setIdleReleaseOpen(false);
     setAgentLifecycleOpen(false);
@@ -2166,6 +2231,54 @@ export function FileTree({
     onSendShortcutChange?.(sendShortcutDraft);
     setSendShortcutOpen(false);
   }, [onSendShortcutChange, sendShortcutDraft]);
+
+  const gestureConfig = normalizeBlueRingGestureConfig(blueRingGestures);
+
+  const openBlueRingSettings = React.useCallback(() => {
+    setAgentLifecycleOpen(false);
+    setRelayServicesOpen(false);
+    setSessionNamingOpen(false);
+    setIdleReleaseOpen(false);
+    setSendShortcutOpen(false);
+    setIsMenuOpen(false);
+    setBlueRingMenuOpen(true);
+  }, []);
+
+  const updateBlueRingAction = React.useCallback((gesture: BlueRingGesture, action: BlueRingAction) => {
+    const nextActions = { ...gestureConfig.actions };
+    nextActions[gesture] = action;
+    const nextConfig = { ...gestureConfig, actions: nextActions };
+    // 绑定三级选择动作时先补一个默认 pick，避免手势触发时因未指定而静默失效
+    if (action === "agentPick" && !nextConfig.agentPicks?.[gesture]) {
+      const firstAgent = blueRingAgents.find((item) => item.name)?.name;
+      if (firstAgent) nextConfig.agentPicks = { ...(nextConfig.agentPicks || {}), [gesture]: firstAgent };
+    }
+    if (action === "newTask" && !nextConfig.taskPicks?.[gesture]) {
+      const firstTemplate = taskTemplates?.find((item) => item.id)?.id;
+      if (firstTemplate) nextConfig.taskPicks = { ...(nextConfig.taskPicks || {}), [gesture]: firstTemplate };
+    }
+    onBlueRingGesturesChange?.(nextConfig);
+  }, [gestureConfig, onBlueRingGesturesChange, blueRingAgents, taskTemplates]);
+
+  const updateBlueRingAgentPick = React.useCallback((gesture: BlueRingGesture, agentName: string) => {
+    const nextPicks = { ...(gestureConfig.agentPicks || {}) };
+    if (agentName) {
+      nextPicks[gesture] = agentName;
+    } else {
+      delete nextPicks[gesture];
+    }
+    onBlueRingGesturesChange?.({ ...gestureConfig, agentPicks: nextPicks });
+  }, [gestureConfig, onBlueRingGesturesChange]);
+
+  const updateBlueRingTaskPick = React.useCallback((gesture: BlueRingGesture, templateId: string) => {
+    const nextPicks = { ...(gestureConfig.taskPicks || {}) };
+    if (templateId) {
+      nextPicks[gesture] = templateId;
+    } else {
+      delete nextPicks[gesture];
+    }
+    onBlueRingGesturesChange?.({ ...gestureConfig, taskPicks: nextPicks });
+  }, [gestureConfig, onBlueRingGesturesChange]);
 
   const saveIdleSessionResourceRelease = React.useCallback(async () => {
     if (idleReleaseBusy) return;
@@ -3629,6 +3742,20 @@ export function FileTree({
                 <span>{t("fileTree.sideBySideDiff")}</span>
                 <span style={{ fontSize: "11px", opacity: gitDiffSideBySide ? 1 : 0 }}>✓</span>
               </button>
+              <button
+                type="button"
+                onClick={openBlueRingSettings}
+                style={fileTreeMenuButtonStyle}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3.2" />
+                  <path d="M12 4.5V2M12 22v-2.5M4.5 12H2M22 12h-2.5M6.7 6.7 4.9 4.9M19.1 19.1l-1.8-1.8M6.7 17.3l-1.8 1.8M19.1 4.9l-1.8 1.8" />
+                </svg>
+                <span style={{ flex: 1 }}>{t("blueRing.title")}</span>
+                <span style={{ color: "var(--text-secondary)", fontSize: "11px" }}>
+                  {t(gestureConfig.enabled ? "blueRing.settings.on" : "blueRing.settings.off")}
+                </span>
+              </button>
               {showEnterKeySendOption ? (
                 <button
                   type="button"
@@ -3927,6 +4054,151 @@ export function FileTree({
               <button type="button" onClick={saveSendShortcut} style={agentConfigPrimaryButtonStyle(false)}>
                 {t("common.save")}
               </button>
+            </div>
+          </div>
+        ) : null}
+        {blueRingMenuOpen ? (
+          <div
+            ref={blueRingPopoverRef}
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: "8px",
+              right: "3px",
+              zIndex: 40,
+              padding: "14px",
+              borderRadius: "12px",
+              border: "1px solid var(--border-color)",
+              background: "var(--menu-bg)",
+              boxShadow: "0 16px 36px rgba(15, 23, 42, 0.18)",
+              boxSizing: "border-box",
+              maxHeight: "calc(100dvh - 96px)",
+              overflowY: "auto",
+            }}
+          >
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+              {t("blueRing.title")}
+            </div>
+            <div style={{ marginTop: "6px", fontSize: "11px", lineHeight: 1.5, color: "var(--text-secondary)" }}>
+              {t("blueRing.description")}
+            </div>
+            <label
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "var(--text-primary)",
+                fontSize: "13px",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={gestureConfig.enabled}
+                onChange={(event) => onBlueRingGesturesChange?.({ ...gestureConfig, enabled: event.target.checked })}
+              />
+              <span>{t("blueRing.enable")}</span>
+            </label>
+            <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "2px" }}>
+              {BLUE_RING_GESTURES.map((gesture) => (
+                <React.Fragment key={gesture}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "4px 2px",
+                      fontSize: "12px",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    <span style={{ flex: 1 }}>{t(BLUE_RING_GESTURE_LABEL_KEYS[gesture])}</span>
+                    <ProviderModelSelect
+                      models={[...BLUE_RING_ACTION_OPTIONS]}
+                      value={gestureConfig.actions[gesture]}
+                      label={t(BLUE_RING_GESTURE_LABEL_KEYS[gesture])}
+                      getOptionLabel={(action) => t(BLUE_RING_ACTION_LABEL_KEYS[action as BlueRingAction])}
+                      onChange={(action) => updateBlueRingAction(gesture, action as BlueRingAction)}
+                      style={{
+                        flex: "0 1 58%",
+                        maxWidth: "58%",
+                        height: "32px",
+                        padding: "4px 6px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-color)",
+                        background: "var(--content-bg)",
+                        color: gestureConfig.actions[gesture] === "none" ? "var(--text-secondary)" : "var(--text-primary)",
+                        fontSize: "12px",
+                      }}
+                    />
+                  </div>
+                  {gestureConfig.actions[gesture] === "agentPick" ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "0 2px 4px 18px",
+                        fontSize: "11px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{t("blueRing.agentPickHint")}</span>
+                      <ProviderModelSelect
+                        models={blueRingAgents.map((item) => item.name)}
+                        value={gestureConfig.agentPicks?.[gesture] || ""}
+                        label={t("blueRing.agentPickHint")}
+                        getOptionLabel={(name) => String(name)}
+                        onChange={(name) => updateBlueRingAgentPick(gesture, String(name || ""))}
+                        style={{
+                          flex: "0 1 58%",
+                          maxWidth: "58%",
+                          height: "32px",
+                          padding: "4px 6px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--border-color)",
+                          background: "var(--content-bg)",
+                          color: gestureConfig.agentPicks?.[gesture] ? "var(--text-primary)" : "var(--text-secondary)",
+                          fontSize: "12px",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {gestureConfig.actions[gesture] === "newTask" ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "0 2px 4px 18px",
+                        fontSize: "11px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <span style={{ flex: 1 }}>{t("blueRing.taskPickHint")}</span>
+                      <ProviderModelSelect
+                        models={(taskTemplates || []).map((template) => template.id).filter(Boolean)}
+                        value={gestureConfig.taskPicks?.[gesture] || ""}
+                        label={t("blueRing.taskPickHint")}
+                        getOptionLabel={(templateId) => (taskTemplates || []).find((template) => template.id === templateId)?.name || String(templateId)}
+                        onChange={(templateId) => updateBlueRingTaskPick(gesture, String(templateId || ""))}
+                        style={{
+                          flex: "0 1 58%",
+                          maxWidth: "58%",
+                          height: "32px",
+                          padding: "4px 6px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--border-color)",
+                          background: "var(--content-bg)",
+                          color: gestureConfig.taskPicks?.[gesture] ? "var(--text-primary)" : "var(--text-secondary)",
+                          fontSize: "12px",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </React.Fragment>
+              ))}
             </div>
           </div>
         ) : null}
@@ -4422,7 +4694,7 @@ export function FileTree({
             {relayActionHelp}
           </div>
         ) : null}
-        {isNativeApp && onGoHome ? (
+        {onGoHome ? (
           <button
             type="button"
             onClick={() => onGoHome()}

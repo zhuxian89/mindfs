@@ -697,9 +697,10 @@ func copyForkHistory(ctx context.Context, manager *session.Manager, from, to *se
 }
 
 type GetSessionInput struct {
-	RootID string
-	Key    string
-	Seq    int
+	RootID          string
+	Key             string
+	Seq             int
+	HistoryRevision int
 }
 
 func (s *Service) GetSession(ctx context.Context, in GetSessionInput) (*session.Session, error) {
@@ -710,13 +711,52 @@ func (s *Service) GetSession(ctx context.Context, in GetSessionInput) (*session.
 	if err != nil {
 		return nil, err
 	}
-	return manager.Get(ctx, in.Key, in.Seq)
+	current, err := manager.Get(ctx, in.Key, in.Seq)
+	if err == nil && in.Seq > 0 && current.HistoryRevision != in.HistoryRevision {
+		return manager.Get(ctx, in.Key, 0)
+	}
+	return current, err
 }
 
 type GetSessionExchangeAuxInput struct {
 	RootID string
 	Key    string
 	Seq    int
+}
+
+type SessionLogPath struct {
+	Path           string
+	AgentSessionID string
+}
+
+func (s *Service) GetSessionLogPath(ctx context.Context, in GetSessionInput) (SessionLogPath, error) {
+	if err := s.ensureRegistry(); err != nil {
+		return SessionLogPath{}, err
+	}
+	manager, err := s.Registry.GetSessionManager(in.RootID)
+	if err != nil {
+		return SessionLogPath{}, err
+	}
+	current, err := manager.Get(ctx, in.Key, 0)
+	if err != nil {
+		return SessionLogPath{}, err
+	}
+	path := manager.ExchangeLogAbsolutePath(in.Key)
+	if path == "" {
+		return SessionLogPath{}, errors.New("session log path unavailable")
+	}
+	out := SessionLogPath{Path: path}
+	agentName := strings.TrimSpace(session.InferAgentFromSession(current))
+	if agentName != "" {
+		binding, err := manager.FindAgentBinding(ctx, in.Key, agentName)
+		if err != nil {
+			// 静默降级为空 agent_session_id，但留日志便于排查接力包缺 ID 的反馈
+			log.Printf("[session] FindAgentBinding failed for %s/%s: %v", in.RootID, in.Key, err)
+		} else if binding != nil {
+			out.AgentSessionID = strings.TrimSpace(binding.AgentSessionID)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) GetSessionExchangeAux(ctx context.Context, in GetSessionExchangeAuxInput) (map[int][]session.ExchangeAux, error) {
@@ -1111,7 +1151,7 @@ func (s *Service) BuildPrompt(in BuildPromptInput) string {
 		if in.Session.TaskID != "" {
 			prompt += " task_id=" + in.Session.TaskID
 		}
-		prompt += ". If asked to orchestrate tasks, read mindfs -orchestration; create a task group with this parent session_key, then create ordinary template tasks in that group.\n"
+		prompt += ". Use MindFS task orchestration only when the user explicitly requests it or clearly expresses intent to use it. General requests to plan, split, or execute work, task complexity, and the presence of this context do not imply that intent. Only when that intent is clear, read mindfs -orchestration; create a task group with this parent session_key, then create ordinary template tasks in that group.\n"
 	}
 	return prependSwitchHint(in, prompt)
 }
