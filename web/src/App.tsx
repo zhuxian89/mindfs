@@ -11,6 +11,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { resolveInputSession } from "./services/inputSession";
+import { useProjectSessionView } from "./hooks/useProjectSessionView";
 import { FileEditStore, fileEditKey } from "./services/fileEditing";
 import { normalizePathForRoot, shouldRedirectToRelayNodes } from "./services/fileNavigation";
 import { getViewModeSystemPrompt } from "./renderer/viewCatalog";
@@ -164,6 +165,7 @@ import { SessionViewer } from "./components/SessionViewer";
 import { DefaultListView, type MainContentViewMode } from "./components/DefaultListView";
 import { MultiProjectSessionList, SessionList, type ProjectSessionGroup } from "./components/SessionList";
 import { HandoffPackDialog } from "./components/HandoffPackDialog";
+import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { ExternalSessionList } from "./components/ExternalSessionList";
 import { InlineTokenText } from "./components/InlineTokenText";
 import { AgentIcon } from "./components/AgentIcon";
@@ -1606,6 +1608,7 @@ export function App({ onGoHome }: AppProps) {
     return window.localStorage.getItem(MULTI_PROJECT_SESSION_STORAGE_KEY) === "1";
   });
   const [multiProjectSessionGroups, setMultiProjectSessionGroups] = useState<MultiProjectSessionGroup[]>([]);
+  const [projectSessionView, setProjectSessionView] = useProjectSessionView();
   const [multiProjectSessionsLoading, setMultiProjectSessionsLoading] = useState(false);
   const [multiProjectPendingByKey, setMultiProjectPendingByKey] = useState<Record<string, boolean>>({});
   const multiProjectPendingRef = useRef<Record<string, boolean>>({});
@@ -5009,7 +5012,10 @@ export function App({ onGoHome }: AppProps) {
           ...payload.pinnedItems,
         ].map((item) => toSessionItem(rootID, item)).filter((item): item is SessionItem => !!item);
         if (!options?.force && currentRootIdRef.current !== rootID) return;
-        setHasMoreSessions(payload.totalCount > payload.items.length);
+        // Newer-session counts say nothing about unloaded older sessions.
+        if (!options?.afterTime) {
+          setHasMoreSessions(payload.totalCount > payload.items.length);
+        }
         if (shouldReplace) {
           setSessions(applyPinnedSnapshotToSessions(mergeSessionItems([], next), rootID, payload.pinnedKeys));
           void saveCachedSessionList(rootID, payload);
@@ -5770,17 +5776,24 @@ export function App({ onGoHome }: AppProps) {
     [handleSelectSession, isMobile, rootSessionKey, bumpCacheVersion],
   );
 
-  const handleDeleteSession = useCallback(
-    async (session: SessionItem) => {
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<SessionItem | null>(null);
+  const closeDeleteSessionDialog = useCallback(() => setDeleteSessionTarget(null), []);
+  const handleDeleteSession = useCallback((session: SessionItem) => {
+    const rootId = session.root_id || currentRootIdRef.current;
+    if (rootId) setDeleteSessionTarget({ ...session, root_id: rootId });
+  }, []);
+
+  const performDeleteSession = useCallback(
+    async (session: SessionItem, keepChildren = false): Promise<boolean> => {
       const sessionKey = session?.key || session?.session_key;
       const rootID =
         (session?.root_id as string | undefined) || currentRootIdRef.current;
-      if (!rootID || !sessionKey) return;
+      if (!rootID || !sessionKey) return false;
 
-      const deleted = await sessionService.deleteSession(rootID, sessionKey);
+      const deleted = await sessionService.deleteSession(rootID, sessionKey, keepChildren);
       if (!deleted) {
         reportError("session.delete_failed", t("session.deleteFailed"));
-        return;
+        return false;
       }
 
       const deletedKeys = new Set<string>();
@@ -5789,7 +5802,7 @@ export function App({ onGoHome }: AppProps) {
         deletedKeys.add(key);
         for (const item of sessionsRef.current) {
           const itemKey = item.key || item.session_key || "";
-          if (String(item.parent_session_key || "").trim() === key) {
+          if (!keepChildren && (!item.root_id || item.root_id === rootID) && String(item.parent_session_key || "").trim() === key) {
             collectDeletedKeys(itemKey);
           }
         }
@@ -5797,8 +5810,18 @@ export function App({ onGoHome }: AppProps) {
       collectDeletedKeys(sessionKey);
 
       setSessions((prev) =>
-        prev.filter((item) => !deletedKeys.has(item.key || item.session_key || "")),
+        prev.filter((item) => (item.root_id && item.root_id !== rootID) || !deletedKeys.has(item.key || item.session_key || ""))
+          .map(item => keepChildren && (!item.root_id || item.root_id === rootID) && item.parent_session_key === sessionKey ? { ...item, parent_session_key: "" } : item),
       );
+
+      if (keepChildren) {
+        for (const [cacheKey, cached] of Object.entries(sessionCacheRef.current)) {
+          if (cacheKey.startsWith(`${rootID}::`) && cached.parent_session_key === sessionKey) {
+            sessionCacheRef.current[cacheKey] = { ...cached, parent_session_key: "", parent_tool_call_id: "" };
+            void deleteCachedSession(rootID, cached.key);
+          }
+        }
+      }
 
       for (const deletedKey of deletedKeys) {
         const cacheKey = rootSessionKey(rootID, deletedKey);
@@ -5828,7 +5851,7 @@ export function App({ onGoHome }: AppProps) {
           }
           const sessions = group.sessions.filter(
             (item) => !deletedKeys.has(item.key || item.session_key || ""),
-          );
+          ).map(item => keepChildren && item.parent_session_key === sessionKey ? { ...item, parent_session_key: "" } : item);
           return {
             ...group,
             sessions,
@@ -5859,6 +5882,8 @@ export function App({ onGoHome }: AppProps) {
       }
 
       bumpCacheVersion();
+      void loadSessionsForRoot(rootID, { replace: true, force: true });
+      return true;
     },
     [
       bumpCacheVersion,
@@ -5869,6 +5894,7 @@ export function App({ onGoHome }: AppProps) {
       setDrawerOpenForRoot,
       setDrawerSessionForRoot,
       setMultiProjectSessionPending,
+      loadSessionsForRoot,
     ],
   );
 
@@ -5961,6 +5987,39 @@ export function App({ onGoHome }: AppProps) {
     },
     [bumpCacheVersion, rootSessionKey, setDrawerSessionForRoot],
   );
+
+  const detachingSessionKeysRef = useRef(new Set<string>());
+  const handleDetachSession = useCallback(async (session: SessionItem) => {
+    const rootID = session.root_id || currentRootIdRef.current;
+    const sessionKey = session.key || session.session_key;
+    if (!rootID || !sessionKey || !session.parent_session_key) return;
+    const cacheKey = rootSessionKey(rootID, sessionKey);
+    if (detachingSessionKeysRef.current.has(cacheKey)) return;
+    detachingSessionKeysRef.current.add(cacheKey);
+    try {
+      const detached = await sessionService.detachSession(rootID, sessionKey);
+      const metadata = { parent_session_key: "", parent_tool_call_id: "", updated_at: detached.updated_at };
+      const matches = (item: SessionItem) => (item.key || item.session_key) === sessionKey && (!item.root_id || item.root_id === rootID);
+      setSessions(prev => prev.map(item => matches(item) ? { ...item, ...metadata } : item));
+      setMultiProjectSessionGroups(prev => prev.map(group => group.rootId === rootID ? {
+        ...group,
+        totalCount: group.totalCount + (group.sessions.some(item => matches(item) && item.parent_session_key) ? 1 : 0),
+        sessions: group.sessions.map(item => matches(item) ? { ...item, ...metadata } : item),
+      } : group));
+      const cached = sessionCacheRef.current[cacheKey];
+      if (cached) sessionCacheRef.current[cacheKey] = { ...cached, ...metadata };
+      void deleteCachedSession(rootID, sessionKey);
+      setSelectedSession(prev => prev && matches(prev) ? { ...prev, ...metadata } : prev);
+      const drawer = drawerSessionByRootRef.current[rootID];
+      if (drawer?.key === sessionKey) setDrawerSessionForRoot(rootID, { ...drawer, ...metadata });
+      bumpCacheVersion();
+      void loadSessionsForRoot(rootID, { replace: true, force: true });
+    } catch (error) {
+      reportError("session.sync_failed", `${t("session.detachFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      detachingSessionKeysRef.current.delete(cacheKey);
+    }
+  }, [bumpCacheVersion, loadSessionsForRoot, rootSessionKey, setDrawerSessionForRoot, t]);
 
   const handlePinSession = useCallback(
     async (session: SessionItem, pinned: boolean) => {
@@ -6106,6 +6165,7 @@ export function App({ onGoHome }: AppProps) {
       rootID: string | null | undefined,
       sessionKey: string | null | undefined,
       seq: number,
+      independent = false,
     ) => {
       const resolvedRoot = String(rootID || currentRootIdRef.current || "").trim();
       const resolvedKey = String(sessionKey || "").trim();
@@ -6115,7 +6175,7 @@ export function App({ onGoHome }: AppProps) {
       }
       let result: Awaited<ReturnType<typeof sessionService.forkSession>>;
       try {
-        result = await sessionService.forkSession(resolvedRoot, resolvedKey, seq);
+        result = await sessionService.forkSession(resolvedRoot, resolvedKey, seq, independent);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         reportError("session.sync_failed", `${t("session.forkFailed")}: ${detail}`);
@@ -11621,6 +11681,7 @@ export function App({ onGoHome }: AppProps) {
       session={selectedSessionSnapshot}
       onRenameSession={selectedSessionSnapshot ? (name) => handleRenameSession(selectedSessionSnapshot, name) : undefined}
       onDeleteSession={selectedSessionSnapshot ? () => void handleDeleteSession(selectedSessionSnapshot) : undefined}
+      onDetachSession={selectedSessionSnapshot?.parent_session_key ? () => void handleDetachSession(selectedSessionSnapshot) : undefined}
       onHandoffPack={selectedSessionSnapshot ? () => handleHandoffPack(selectedSessionSnapshot) : undefined}
       onScheduledTask={selectedSessionSnapshot ? () => openSessionScheduledTask(selectedSessionSnapshot) : undefined}
       agents={availableAgents}
@@ -11661,11 +11722,12 @@ export function App({ onGoHome }: AppProps) {
       }
       onAskUserAnswer={handleAskUserAnswer}
       onEditUserMessage={handleEditUserMessage}
-      onForkAgentMessage={(seq) =>
+      onForkAgentMessage={(seq, independent) =>
         void handleForkAgentMessage(
           selectedSession?.root_id || currentRootId,
           selectedSessionSnapshot?.key || selectedSessionSnapshot?.session_key,
           seq,
+          independent,
         )
       }
     />
@@ -14263,6 +14325,7 @@ export function App({ onGoHome }: AppProps) {
       />
     ) : multiProjectSessionsEnabled && !sessionSearchOpen && !sessionSearchResultsMode ? (
       <MultiProjectSessionList
+        viewMode={projectSessionView}
         groups={multiProjectSessionGroups}
         selectedKey={selectedSession?.key}
         selectedRootId={(selectedSession?.root_id as string | undefined) || currentRootId || ""}
@@ -14287,6 +14350,7 @@ export function App({ onGoHome }: AppProps) {
         onRename={handleRenameSession}
         onScheduledTask={openSessionScheduledTask}
         onDelete={handleDeleteSession}
+        onDetach={handleDetachSession}
         onProjectClick={(rootId) => {
           actionHandlers.open_dir({
             path: rootId,
@@ -14375,6 +14439,7 @@ export function App({ onGoHome }: AppProps) {
         onRename={handleRenameSession}
         onScheduledTask={openSessionScheduledTask}
         onDelete={handleDeleteSession}
+        onDetach={handleDetachSession}
         onLoadChildren={
           sessionSearchOpen && sessionSearchResultsMode
             ? undefined
@@ -14664,6 +14729,8 @@ export function App({ onGoHome }: AppProps) {
             onGitDiffSideBySideChange={setGitDiffSideBySide}
             multiProjectSessionsEnabled={multiProjectSessionsEnabled}
             onMultiProjectSessionsChange={setMultiProjectSessionsEnabled}
+            projectSessionView={projectSessionView}
+            onProjectSessionViewChange={setProjectSessionView}
             fontSizePreferences={fontSizePreferences}
             onFontSizePreferencesChange={setFontSizePreferences}
             onRunAgentLifecycleCommand={handleRunAgentLifecycleCommand}
@@ -14885,11 +14952,12 @@ export function App({ onGoHome }: AppProps) {
                 }
                 onAskUserAnswer={handleAskUserAnswer}
                 onEditUserMessage={handleEditUserMessage}
-                onForkAgentMessage={(seq) =>
+                onForkAgentMessage={(seq, independent) =>
                   void handleForkAgentMessage(
                     currentRootId,
                     drawerSessionSnapshot?.key || drawerSessionSnapshot?.session_key,
                     seq,
+                    independent,
                   )
                 }
               />
@@ -14901,6 +14969,14 @@ export function App({ onGoHome }: AppProps) {
           </BottomSheet>
         }
       />
+      {deleteSessionTarget && <DeleteSessionDialog
+        key={`${deleteSessionTarget.root_id}:${deleteSessionTarget.key || deleteSessionTarget.session_key}`}
+        rootId={String(deleteSessionTarget.root_id)}
+        sessionKey={String(deleteSessionTarget.key || deleteSessionTarget.session_key)}
+        name={deleteSessionTarget.name}
+        onClose={closeDeleteSessionDialog}
+        onConfirm={(keepChildren) => performDeleteSession(deleteSessionTarget, keepChildren)}
+      />}
       <HandoffPackDialog
         session={handoffPackSession}
         onClose={() => setHandoffPackSession(null)}
