@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>登录 · MindFS Relay</title>
+  <title>登录 · 随风 relay</title>
   {{template "styles"}}
 </head>
 <body>
@@ -74,7 +74,7 @@ function show(mode) {
   forms[mode].insertBefore(hintElement, submit);
   document.getElementById("page-title").textContent = copy[mode][0];
   document.getElementById("description").textContent = copy[mode][1];
-  document.title = copy[mode][0] + " · MindFS Relay";
+  document.title = copy[mode][0] + " · 随风 relay";
   clearMessages();
 }
 for (const button of modes) button.addEventListener("click", () => show(button.dataset.mode));

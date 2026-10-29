@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>我的节点 · MindFS Relay</title>
+  <title>我的节点 · 随风 relay</title>
   {{template "styles"}}
 </head>
 <body>
@@ -17,9 +17,9 @@
 <main class="workspace">
   <div class="section-heading">
     <div><h1>我的节点</h1><p class="subtext">打开在线设备，继续你的工作。</p><p id="count" class="count">正在加载…</p></div>
-    <div class="route" aria-label="通过 MindFS Relay 访问你的节点">
+    <div class="route" aria-label="通过 随风 relay 访问你的节点">
       <div class="station"><div class="hub">{{template "node-icon"}}</div>当前浏览器</div><div class="track"></div>
-      <div class="station focus"><div class="hub"><svg class="icon" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="10" height="10" rx="3"/><rect x="19" y="17" width="10" height="10" rx="3"/><path d="M13 10h7a4 4 0 0 1 4 4v3M19 22h-7a4 4 0 0 1-4-4v-3"/></svg></div>MindFS Relay</div><div class="track"></div>
+      <div class="station focus"><div class="hub"><svg class="icon" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="10" height="10" rx="3"/><rect x="19" y="17" width="10" height="10" rx="3"/><path d="M13 10h7a4 4 0 0 1 4 4v3M19 22h-7a4 4 0 0 1-4-4v-3"/></svg></div>随风 relay</div><div class="track"></div>
       <div class="station"><div class="hub">{{template "node-icon"}}</div>你的节点</div>
     </div>
   </div>
@@ -34,7 +34,7 @@
   <p id="error" class="notice error" role="alert"></p>
   <p id="hint" class="notice success" role="status"></p>
   <div class="list-tools"><div class="help"><span>状态每 15 秒自动更新</span><span>在节点菜单中重命名或删除设备</span></div><button id="refresh" class="quiet" type="button" aria-label="刷新列表">{{template "refresh-icon"}}<span class="refresh-label">刷新列表</span></button></div>
-  <div class="list-footer"><span>MindFS Relay</span><span id="updated" role="status"></span></div>
+  <div class="list-footer"><span>随风 relay</span><span id="updated" role="status"></span></div>
   {{template "noscript"}}
 </main>
 <template id="node-template">

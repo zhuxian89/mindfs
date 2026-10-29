@@ -1,5 +1,5 @@
 ---
-name: MindFS Relay · C 松绿信息板
+name: 随风 relay · C 松绿信息板
 description: Relay 账号、节点与设备绑定页面的已实现设计系统
 colors:
   bg: '#edf1eb'
@@ -164,7 +164,7 @@ components:
     width: min(460px, calc(100% - 32px))
 ---
 
-# Design System: MindFS Relay · C 松绿信息板
+# Design System: 随风 relay · C 松绿信息板
 
 ## Overview
 
