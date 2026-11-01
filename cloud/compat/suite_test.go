@@ -46,6 +46,9 @@ func TestUnmodifiedNodeRelayCompatibility(t *testing.T) {
 	if err := run.verifyHTTP(); err != nil {
 		t.Fatalf("compat stage=http failed: %v", err)
 	}
+	// verifyHTTP sends an invalid pairing request. The current Node admits
+	// pairing attempts at least three seconds apart, including rejected ones.
+	time.Sleep(3 * time.Second)
 	session, err := run.openE2EESession()
 	if err != nil {
 		t.Fatalf("compat stage=e2ee_open failed: %v", err)
