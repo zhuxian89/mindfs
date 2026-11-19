@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"mindfs-cloud/internal/assetsync"
 	"mindfs-cloud/internal/config"
 )
 
@@ -45,7 +46,11 @@ func (a *App) handleAsset(w http.ResponseWriter, r *http.Request) {
 		assetNotFound(w, r)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if assetsync.IsImmutableAsset(name) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, path.Base(name), info.ModTime(), file)
 }

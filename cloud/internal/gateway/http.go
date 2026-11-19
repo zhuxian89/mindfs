@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -61,12 +62,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer stream.Close()
 
-	done := closeStreamOnCancel(r.Context(), stream)
-	defer close(done)
+	stop := closeStreamOnCancel(r.Context(), stream)
+	defer stop()
 
 	outbound := cloneRequest(r, path, h.forwardedProto, false)
-	if err := outbound.Write(stream); err != nil {
-		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "request forwarding failed"}
+	if err := h.writeRequest(stream, outbound); err != nil {
+		return err
 	}
 	if h.headerTimeout > 0 {
 		_ = stream.SetReadDeadline(time.Now().Add(h.headerTimeout))
@@ -74,6 +75,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 	response, err := http.ReadResponse(bufio.NewReader(stream), outbound)
 	if err != nil {
 		if isTimeout(err) {
+			abortStream(stream)
 			return &Error{Status: http.StatusGatewayTimeout, Code: "node_timeout", Message: "node response timed out"}
 		}
 		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "node response failed"}
@@ -86,15 +88,70 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// Apply the stream timeout only to blocked writes. The browser may take
+// arbitrarily long to supply the next chunk of a healthy upload.
+type requestStreamWriter struct {
+	stream   net.Conn
+	timeout  time.Duration
+	writeErr error
+}
+
+func (w *requestStreamWriter) Write(p []byte) (int, error) {
+	if w.timeout > 0 {
+		if err := w.stream.SetWriteDeadline(time.Now().Add(w.timeout)); err != nil {
+			return 0, err
+		}
+	}
+	n, err := w.stream.Write(p)
+	w.writeErr = err
+	return n, err
+}
+
+func (h *Handler) writeRequest(stream net.Conn, request *http.Request) error {
+	dst := &requestStreamWriter{stream: stream, timeout: h.streamOpenTimeout}
+	if dst.timeout > 0 {
+		defer stream.SetWriteDeadline(time.Time{})
+	}
+	if err := request.Write(dst); err != nil {
+		abortStream(stream)
+		// Request.Write can hide the underlying writer error while copying a body.
+		if isTimeout(dst.writeErr) {
+			return &Error{Status: http.StatusGatewayTimeout, Code: "node_timeout", Message: "node request forwarding timed out"}
+		}
+		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "request forwarding failed"}
+	}
+	return nil
+}
+
 func writeHTTPResponse(w http.ResponseWriter, r *http.Request, response *http.Response) {
 	copyHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
-	if _, err := io.Copy(w, response.Body); err != nil {
+	var dst io.Writer = w
+	if contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type")); contentType == "text/event-stream" {
+		controller := http.NewResponseController(w)
+		if err := controller.Flush(); err == nil {
+			dst = eventStreamWriter{w, controller}
+		}
+	}
+	if _, err := io.Copy(dst, response.Body); err != nil {
 		// Headers may already be on the wire. A normal return would finalize a
 		// truncated body as a successful response; abort the HTTP stream instead.
 		log.Printf("relay response interrupted method=%s", r.Method)
 		panic(http.ErrAbortHandler)
 	}
+}
+
+type eventStreamWriter struct {
+	io.Writer
+	controller *http.ResponseController
+}
+
+func (w eventStreamWriter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	if err == nil {
+		err = w.controller.Flush()
+	}
+	return n, err
 }
 
 func (h *Handler) openNodeStream(ctx context.Context, nodeID string) (net.Conn, error) {
@@ -218,14 +275,15 @@ func isTimeout(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-func closeStreamOnCancel(ctx context.Context, stream net.Conn) chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = stream.Close()
-		case <-done:
-		}
-	}()
-	return done
+func closeStreamOnCancel(ctx context.Context, stream net.Conn) func() bool {
+	return context.AfterFunc(ctx, func() { abortStream(stream) })
+}
+
+func abortStream(stream net.Conn) {
+	if resetter, ok := stream.(interface{ Reset() error }); ok {
+		_ = resetter.Reset()
+		return
+	}
+	_ = stream.SetDeadline(time.Now())
+	_ = stream.Close()
 }

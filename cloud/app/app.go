@@ -89,7 +89,7 @@ func newApp(cfg config.Config, mail identity.MailSender, passwords *identity.Pas
 		identity:  identityService,
 		mail:      mail,
 		registry:  registry,
-		connector: connector.NewHandler(tokens, registry, cfg.StreamOpenTimeout),
+		connector: connector.NewHandler(tokens, registry),
 		gateway:   gateway.NewHandler(st, registry, cfg.StreamOpenTimeout, cfg.HeaderTimeout, cfg.PublicURL.Scheme),
 		metrics:   ops.NewMetrics(),
 		assets:    assets,

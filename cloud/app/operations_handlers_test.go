@@ -35,7 +35,7 @@ func TestReadyAndAssetHandlers(t *testing.T) {
 	if asset.Code != http.StatusOK || asset.Body.String() != "asset-ok" {
 		t.Fatalf("asset response = %d %q", asset.Code, asset.Body.String())
 	}
-	if !strings.Contains(asset.Header().Get("Cache-Control"), "immutable") {
+	if asset.Header().Get("Cache-Control") != "no-cache" {
 		t.Fatalf("Cache-Control = %q", asset.Header().Get("Cache-Control"))
 	}
 	metrics := httptest.NewRecorder()

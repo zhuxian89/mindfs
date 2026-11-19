@@ -11,7 +11,8 @@ import (
 
 type statusResponseWriter struct {
 	http.ResponseWriter
-	status int
+	status    int
+	onUpgrade func()
 }
 
 func (w *statusResponseWriter) WriteHeader(status int) {
@@ -37,6 +38,14 @@ func (w *statusResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hijacker.Hijack()
 }
 
+func (w *statusResponseWriter) WebSocketUpgraded() {
+	if w.status == 0 && w.onUpgrade != nil {
+		w.status = http.StatusSwitchingProtocols
+		w.onUpgrade()
+		w.onUpgrade = nil
+	}
+}
+
 func (w *statusResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
@@ -53,10 +62,26 @@ func (w *statusResponseWriter) Push(target string, options *http.PushOptions) er
 func requestLogMiddleware(next http.Handler, observers ...func(string, int, time.Duration)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		tracked := &statusResponseWriter{ResponseWriter: w}
+		record := func(status int) {
+			duration := time.Since(started)
+			log.Printf(
+				"request completed request_id=%s method=%s path=%s status=%d duration_ms=%d",
+				requestIDFromContext(r.Context()),
+				r.Method,
+				r.URL.Path,
+				status,
+				duration.Milliseconds(),
+			)
+			for _, observe := range observers {
+				if observe != nil {
+					observe(r.Method, status, duration)
+				}
+			}
+		}
+		tracked := &statusResponseWriter{ResponseWriter: w, onUpgrade: func() { record(http.StatusSwitchingProtocols) }}
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				if recovered == http.ErrAbortHandler {
+				if recovered == http.ErrAbortHandler && tracked.onUpgrade != nil {
 					for _, observe := range observers {
 						if observe != nil {
 							observe(r.Method, http.StatusBadGateway, time.Since(started))
@@ -71,19 +96,8 @@ func requestLogMiddleware(next http.Handler, observers ...func(string, int, time
 		if status == 0 {
 			status = http.StatusOK
 		}
-		duration := time.Since(started)
-		log.Printf(
-			"request completed request_id=%s method=%s path=%s status=%d duration_ms=%d",
-			requestIDFromContext(r.Context()),
-			r.Method,
-			r.URL.Path,
-			status,
-			duration.Milliseconds(),
-		)
-		for _, observe := range observers {
-			if observe != nil {
-				observe(r.Method, status, duration)
-			}
+		if tracked.onUpgrade != nil {
+			record(status)
 		}
 	})
 }

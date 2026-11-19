@@ -11,7 +11,7 @@ type fakeSession struct {
 	closed bool
 }
 
-func (s *fakeSession) Open() (net.Conn, error) { return s.open() }
+func (s *fakeSession) Open(context.Context) (net.Conn, error) { return s.open() }
 func (s *fakeSession) Close() error {
 	s.closed = true
 	return nil

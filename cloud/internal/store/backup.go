@@ -32,28 +32,34 @@ func BackupSQLite(ctx context.Context, dataDir, destination string) (int64, erro
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return 0, fmt.Errorf("create backup directory: %w", err)
 	}
-	database, err := sql.Open("sqlite", source)
+	database, err := openSQLiteConnections(source, true)
 	if err != nil {
-		return 0, err
-	}
-	database.SetMaxOpenConns(1)
-	defer database.Close()
-	if err := database.PingContext(ctx); err != nil {
 		return 0, fmt.Errorf("open source database: %w", err)
 	}
-	if _, err := database.ExecContext(ctx, "VACUUM INTO ?", destination); err != nil {
-		return 0, fmt.Errorf("create sqlite backup: %w", err)
-	}
-	if err := verifySQLiteBackup(ctx, destination); err != nil {
-		_ = os.Remove(destination)
+	defer database.Close()
+
+	// Keep partial snapshots private; publish only a verified database, and
+	// never replace a destination another backup created in the meantime.
+	temp, err := os.CreateTemp(filepath.Dir(destination), ".relay-backup-*")
+	if err != nil {
 		return 0, err
 	}
-	if err := os.Chmod(destination, 0o600); err != nil {
-		_ = os.Remove(destination)
-		return 0, fmt.Errorf("secure sqlite backup: %w", err)
+	stage := temp.Name()
+	defer os.Remove(stage)
+	if err := temp.Close(); err != nil {
+		return 0, err
 	}
-	info, err := os.Stat(destination)
+	if _, err := database.ExecContext(ctx, "VACUUM INTO ?", stage); err != nil {
+		return 0, fmt.Errorf("create sqlite backup: %w", err)
+	}
+	if err := verifySQLiteBackup(ctx, stage); err != nil {
+		return 0, err
+	}
+	info, err := os.Stat(stage)
 	if err != nil {
+		return 0, err
+	}
+	if err := os.Link(stage, destination); err != nil {
 		return 0, err
 	}
 	return info.Size(), nil
@@ -71,6 +77,10 @@ func verifySQLiteBackup(ctx context.Context, destination string) error {
 	}
 	if result != "ok" {
 		return fmt.Errorf("verify sqlite backup: %s", result)
+	}
+	// An empty SQLite database also passes integrity_check.
+	if _, err := database.ExecContext(ctx, "SELECT id FROM nodes LIMIT 0"); err != nil {
+		return fmt.Errorf("verify relay schema: %w", err)
 	}
 	return nil
 }

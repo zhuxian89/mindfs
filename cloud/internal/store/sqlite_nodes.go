@@ -71,6 +71,9 @@ func (s *SQLiteStore) DeleteNodeByOwner(ctx context.Context, ownerUserID, nodeID
 	if _, err := getOwnedNode(ctx, tx, ownerUserID, nodeID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "UPDATE bind_challenges SET status = ? WHERE node_id = ? AND status = ?", BindRevoked, nodeID, BindConfirmed); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM device_tokens WHERE node_id = ?", nodeID); err != nil {
 		return err
 	}

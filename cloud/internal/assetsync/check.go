@@ -29,18 +29,22 @@ func Check(ctx context.Context, options Options) (Coverage, error) {
 		return coverage, err
 	}
 	var incomplete []string
-	for _, item := range releases {
+	stable := make(map[string]bool)
+	for i := len(releases) - 1; i >= 0; i-- {
+		item := releases[i]
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
 		asset, ok := linuxReleaseAsset(item)
 		marker := filepath.Join(options.TargetDir, ".releases", item.TagName+".complete")
-		if !ok || !markerMatches(marker, options.TargetDir, asset) {
+		if !ok || !markerMatches(marker, options.TargetDir, asset, stable) {
 			incomplete = append(incomplete, item.TagName)
 			continue
 		}
 		coverage.Releases++
-		coverage.LatestTag = item.TagName
+		if coverage.LatestTag == "" {
+			coverage.LatestTag = item.TagName
+		}
 	}
 	if len(incomplete) > 0 {
 		return coverage, fmt.Errorf("release assets missing, changed or unverified for %s; run sync-assets and resolve any reported collisions", strings.Join(incomplete, ", "))

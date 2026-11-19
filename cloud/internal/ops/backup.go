@@ -15,13 +15,6 @@ type BackupResult struct {
 }
 
 func Backup(ctx context.Context, cfg config.Config, destination string) (BackupResult, error) {
-	database, err := store.OpenSQLite(cfg.DataDir)
-	if err != nil {
-		return BackupResult{}, err
-	}
-	if err := database.Close(); err != nil {
-		return BackupResult{}, err
-	}
 	absolute, err := filepath.Abs(destination)
 	if err != nil {
 		return BackupResult{}, err

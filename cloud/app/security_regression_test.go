@@ -15,7 +15,7 @@ import (
 
 type auditNodeSession struct{ seen chan *http.Request }
 
-func (s *auditNodeSession) Open() (net.Conn, error) {
+func (s *auditNodeSession) Open(context.Context) (net.Conn, error) {
 	relay, node := net.Pipe()
 	go func() {
 		defer node.Close()

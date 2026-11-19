@@ -129,13 +129,14 @@ func TestSyncAllowsStableAssetReplacement(t *testing.T) {
 
 func TestImmutableAssetClassification(t *testing.T) {
 	for name, want := range map[string]bool{
+		"index-DeN-bQ9q.js":                       true,
 		"index-DeNebQ9q.js":                       true,
 		"fonts/KaTeX_Main-Regular-B22Nviop.woff2": true,
 		"agents/augment.svg":                      false,
 		"agents/claude-code.svg":                  false,
 	} {
-		if got := isImmutableAsset(name); got != want {
-			t.Fatalf("isImmutableAsset(%q) = %v want %v", name, got, want)
+		if got := IsImmutableAsset(name); got != want {
+			t.Fatalf("IsImmutableAsset(%q) = %v want %v", name, got, want)
 		}
 	}
 }

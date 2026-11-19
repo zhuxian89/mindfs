@@ -297,6 +297,10 @@ func TestRelayNodeDeleteRevokesTokenAndDisconnects(t *testing.T) {
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"success":true`) {
 		t.Fatalf("delete response = %d body=%s", recorder.Code, recorder.Body.String())
 	}
+	challenge, err := application.store.GetChallenge(context.Background(), []byte("delete-code"))
+	if err != nil || challenge.Status != store.BindRevoked {
+		t.Fatalf("deleted node binding = %v, %v", challenge.Status, err)
+	}
 	if !session.closed || application.registry.Status(node.ID).Online {
 		t.Fatalf("closed=%v presence=%#v", session.closed, application.registry.Status(node.ID))
 	}
@@ -390,14 +394,14 @@ func createRelayTestNode(t *testing.T, application *App, node store.Node, codeHa
 
 type idleRelaySession struct{}
 
-func (idleRelaySession) Open() (net.Conn, error) { return nil, nil }
-func (idleRelaySession) Close() error            { return nil }
+func (idleRelaySession) Open(context.Context) (net.Conn, error) { return nil, nil }
+func (idleRelaySession) Close() error                           { return nil }
 
 type trackingRelaySession struct {
 	closed bool
 }
 
-func (*trackingRelaySession) Open() (net.Conn, error) { return nil, nil }
+func (*trackingRelaySession) Open(context.Context) (net.Conn, error) { return nil, nil }
 func (s *trackingRelaySession) Close() error {
 	s.closed = true
 	return nil

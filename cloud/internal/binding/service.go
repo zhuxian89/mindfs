@@ -91,6 +91,9 @@ func (s *Service) Poll(ctx context.Context, code, deviceID string) (BindPollResp
 			return BindPollResponse{}, err
 		}
 		node, err := s.store.GetNode(ctx, challenge.NodeID)
+		if errors.Is(err, store.ErrNotFound) {
+			return BindPollResponse{Status: string(store.BindRevoked)}, nil
+		}
 		if err != nil {
 			return BindPollResponse{}, err
 		}

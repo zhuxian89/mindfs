@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/yamux v0.1.2
+	github.com/libp2p/go-yamux/v5 v5.1.0
 	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.57.0
 	modernc.org/sqlite v1.61.1
@@ -13,6 +14,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/libp2p/go-buffer-pool v0.0.2 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

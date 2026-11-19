@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+
+	"mindfs-cloud/internal/ops"
 )
 
 const (
@@ -25,9 +27,10 @@ var (
 )
 
 type bridgeResult struct {
-	err       error
-	closeCode int
-	reason    string
+	err             error
+	closeCode       int
+	reason          string
+	publicCloseCode int
 }
 
 func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMessageBytes int64) error {
@@ -40,12 +43,12 @@ func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMess
 		return err
 	}
 	defer stream.Close()
-	done := closeStreamOnCancel(r.Context(), stream)
-	defer close(done)
+	stop := closeStreamOnCancel(r.Context(), stream)
+	defer stop()
 
 	outbound := cloneRequest(r, path, h.forwardedProto, true)
-	if err := outbound.Write(stream); err != nil {
-		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "WebSocket request forwarding failed"}
+	if err := h.writeRequest(stream, outbound); err != nil {
+		return err
 	}
 	if h.headerTimeout > 0 {
 		_ = stream.SetReadDeadline(time.Now().Add(h.headerTimeout))
@@ -54,6 +57,7 @@ func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMess
 	response, err := http.ReadResponse(reader, outbound)
 	if err != nil {
 		if isTimeout(err) {
+			abortStream(stream)
 			return &Error{Status: http.StatusGatewayTimeout, Code: "node_timeout", Message: "node response timed out"}
 		}
 		return &Error{Status: http.StatusBadGateway, Code: "relay_stream_failed", Message: "node WebSocket response failed"}
@@ -84,22 +88,34 @@ func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMess
 	if err != nil {
 		return nil
 	}
+	ops.WebSocketUpgraded(w)
 	defer publicWS.Close()
 	publicWS.SetReadLimit(maxMessageBytes)
 
-	results := make(chan bridgeResult, 2)
-	go bridgePublicToStream(publicWS, stream, maxMessageBytes, results)
-	go bridgeStreamToPublic(reader, publicWS, maxMessageBytes, results)
-	result := <-results
+	fromBrowser := make(chan bridgeResult, 1)
+	fromNode := make(chan bridgeResult, 1)
+	go bridgePublicToStream(publicWS, stream, maxMessageBytes, fromBrowser)
+	go bridgeStreamToPublic(reader, publicWS, maxMessageBytes, fromNode)
+	var result bridgeResult
+	var other <-chan bridgeResult
+	var direction string
+	select {
+	case result = <-fromBrowser:
+		direction, other = "browser_to_node", fromNode
+	case result = <-fromNode:
+		direction, other = "node_to_browser", fromBrowser
+	}
 	_ = stream.Close()
 	if result.closeCode != 0 {
 		_ = writePublicClose(publicWS, result.closeCode, result.reason)
 	}
-	if result.err != nil {
-		log.Printf("websocket bridge closed node_id=%s error=%v", nodeID, result.err)
+	code := result.closeCode
+	if result.publicCloseCode != 0 {
+		code = result.publicCloseCode
 	}
+	log.Printf("websocket bridge closed node_id=%s direction=%s ws_code=%d error=%v", nodeID, direction, code, result.err)
 	_ = publicWS.Close()
-	<-results
+	<-other
 	return nil
 }
 
@@ -110,7 +126,7 @@ func bridgePublicToStream(publicWS *websocket.Conn, stream io.Writer, maxMessage
 			var closeErr *websocket.CloseError
 			if errors.As(err, &closeErr) {
 				_ = writeWSCloseFrame(stream, sanitizeCloseCode(closeErr.Code), closeErr.Text)
-				results <- bridgeResult{}
+				results <- bridgeResult{publicCloseCode: closeErr.Code}
 				return
 			}
 			if strings.Contains(err.Error(), "read limit") {

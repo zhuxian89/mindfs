@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/smtp"
@@ -130,9 +129,8 @@ func (s *SMTPSender) SendVerificationCode(ctx context.Context, recipient string,
 	if err := writer.Close(); err != nil {
 		return errors.New("send SMTP message")
 	}
-	if err := client.Quit(); err != nil {
-		return fmt.Errorf("finish SMTP session: %w", err)
-	}
+	// Closing DATA already received the acceptance reply. A failed QUIT cannot undo delivery.
+	_ = client.Quit()
 	return nil
 }
 

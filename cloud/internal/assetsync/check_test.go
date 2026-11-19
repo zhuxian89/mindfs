@@ -31,6 +31,7 @@ func TestCoverageDetectsNewReleaseAndMissingOrChangedFiles(t *testing.T) {
 	var releases []release
 	for _, tag := range []string{"v0.4.9", "v0.5.0"} {
 		archive := releaseArchive(t, map[string]string{
+			"mindfs_" + tag + "/web/assets/agents/icon.svg":         tag,
 			"mindfs_" + tag + "/web/assets/" + tag + "-AbCdEf12.js": "bundle " + tag,
 		})
 		archives["/"+tag] = archive
@@ -81,6 +82,10 @@ func TestCoverageDetectsNewReleaseAndMissingOrChangedFiles(t *testing.T) {
 	}
 	if _, err := Sync(context.Background(), options); err != nil {
 		t.Fatal(err)
+	}
+	stable, err := os.ReadFile(filepath.Join(options.TargetDir, "assets", "agents", "icon.svg"))
+	if err != nil || string(stable) != "v0.5.0" {
+		t.Fatalf("stable file after repair = %q, %v", stable, err)
 	}
 	if err := os.WriteFile(oldFile, []byte("corrupt"), 0o644); err != nil {
 		t.Fatal(err)

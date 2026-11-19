@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+// WebSocketUpgraded records the completed handshake before the handler starts
+// relaying messages. Gorilla writes the 101 directly to the hijacked socket.
+func WebSocketUpgraded(w http.ResponseWriter) {
+	if observer, ok := w.(interface{ WebSocketUpgraded() }); ok {
+		observer.WebSocketUpgraded()
+	}
+}
+
 type metricKey struct {
 	method string
 	status int

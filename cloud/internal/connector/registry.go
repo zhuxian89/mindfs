@@ -11,7 +11,7 @@ import (
 var ErrNodeOffline = errors.New("node offline")
 
 type RelaySession interface {
-	Open() (net.Conn, error)
+	Open(context.Context) (net.Conn, error)
 	Close() error
 }
 
@@ -86,27 +86,14 @@ func (r *Registry) OpenStream(ctx context.Context, nodeID string) (net.Conn, err
 	if !ok || entry.session == nil {
 		return nil, ErrNodeOffline
 	}
-	type result struct {
-		conn net.Conn
-		err  error
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	opened := make(chan result, 1)
-	go func() {
-		conn, err := entry.session.Open()
-		opened <- result{conn: conn, err: err}
-	}()
-	select {
-	case result := <-opened:
-		return result.conn, result.err
-	case <-ctx.Done():
-		go func() {
-			result := <-opened
-			if result.conn != nil {
-				_ = result.conn.Close()
-			}
-		}()
+	conn, err := entry.session.Open(ctx)
+	if err != nil && ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	return conn, err
 }
 
 func (r *Registry) Status(nodeID string) NodePresence {

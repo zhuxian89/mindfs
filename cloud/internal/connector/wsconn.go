@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -76,4 +77,52 @@ func (c *WebSocketNetConn) SetDeadline(t time.Time) error {
 		return err
 	}
 	return c.SetWriteDeadline(t)
+}
+
+// Keep the first observed transport failure. Closing the connection also wakes
+// the opposite direction, whose error would mask the original one.
+type sessionTransport struct {
+	net.Conn
+	first atomic.Pointer[transportFailure]
+}
+
+type transportFailure struct {
+	direction string
+	code      int
+}
+
+func (c *sessionTransport) record(direction string, err error) {
+	if err == nil || c.first.Load() != nil {
+		return
+	}
+	f := &transportFailure{direction: direction}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		f.code = closeErr.Code
+	}
+	c.first.CompareAndSwap(nil, f)
+}
+
+func (c *sessionTransport) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	c.record("read", err)
+	return n, err
+}
+
+func (c *sessionTransport) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	c.record("write", err)
+	return n, err
+}
+
+func (c *sessionTransport) Close() error {
+	c.first.CompareAndSwap(nil, &transportFailure{direction: "local_close"})
+	return c.Conn.Close()
+}
+
+func (c *sessionTransport) failure() (string, int) {
+	if f := c.first.Load(); f != nil {
+		return f.direction, f.code
+	}
+	return "none", 0
 }

@@ -61,6 +61,7 @@ type releaseAsset struct {
 }
 
 type releaseMarker struct {
+	Version int               `json:"version"`
 	Archive string            `json:"archive"`
 	Digest  string            `json:"digest"`
 	Assets  map[string]string `json:"assets"`
@@ -92,21 +93,24 @@ func Sync(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	for _, item := range releases {
+	// Newest release owns each stable filename it supplies.
+	stable := make(map[string]bool)
+	for i := len(releases) - 1; i >= 0; i-- {
+		item := releases[i]
 		asset, ok := linuxReleaseAsset(item)
 		if !ok {
 			return result, fmt.Errorf("release %s has no linux amd64 archive", item.TagName)
 		}
 		marker := filepath.Join(targetDir, ".releases", item.TagName+".complete")
-		if markerMatches(marker, targetDir, asset) {
+		if markerMatches(marker, targetDir, asset, stable) {
 			result.ReleasesPresent++
 			continue
 		}
-		added, reused, assetDigests, err := importRelease(ctx, client, targetDir, item.TagName, asset)
+		added, reused, assetDigests, err := importRelease(ctx, client, targetDir, item.TagName, asset, stable)
 		if err != nil {
 			return result, err
 		}
-		markerPayload, err := json.MarshalIndent(releaseMarker{Archive: asset.Name, Digest: asset.Digest, Assets: assetDigests}, "", "  ")
+		markerPayload, err := json.MarshalIndent(releaseMarker{Version: 2, Archive: asset.Name, Digest: asset.Digest, Assets: assetDigests}, "", "  ")
 		if err != nil {
 			return result, fmt.Errorf("encode release marker %s: %w", item.TagName, err)
 		}
@@ -214,7 +218,7 @@ func copyCurrentBundle(source, target string, result *Result, preserveStable boo
 		}
 		if strings.HasPrefix(relative, "assets"+string(filepath.Separator)) {
 			assetName := filepath.ToSlash(strings.TrimPrefix(relative, "assets"+string(filepath.Separator)))
-			immutable := isImmutableAsset(assetName)
+			immutable := IsImmutableAsset(assetName)
 			if preserveStable && !immutable {
 				if info, err := os.Stat(destination); err == nil && info.Mode().IsRegular() {
 					result.AssetsReused++
@@ -318,7 +322,7 @@ func linuxReleaseAsset(item release) (releaseAsset, bool) {
 	return releaseAsset{}, false
 }
 
-func importRelease(ctx context.Context, client *http.Client, targetDir, tag string, asset releaseAsset) (int, int, map[string]string, error) {
+func importRelease(ctx context.Context, client *http.Client, targetDir, tag string, asset releaseAsset, stable map[string]bool) (int, int, map[string]string, error) {
 	archivePath, err := downloadRelease(ctx, client, targetDir, tag, asset)
 	if err != nil {
 		return 0, 0, nil, err
@@ -350,9 +354,14 @@ func importRelease(ctx context.Context, client *http.Client, targetDir, tag stri
 			return err
 		}
 		assetName := filepath.ToSlash(relative)
-		immutable := isImmutableAsset(assetName)
-		if immutable {
-			assetDigests[assetName] = hex.EncodeToString(digest[:])
+		immutable := IsImmutableAsset(assetName)
+		assetDigests[assetName] = hex.EncodeToString(digest[:])
+		if !immutable {
+			if stable[assetName] {
+				reused++
+				return nil
+			}
+			stable[assetName] = true
 		}
 		installed, err := installAsset(sourcePath, filepath.Join(targetDir, "assets", relative), immutable)
 		if err != nil {
@@ -561,7 +570,9 @@ func installAsset(source, destination string, immutable bool) (bool, error) {
 	return true, nil
 }
 
-func isImmutableAsset(name string) bool {
+// IsImmutableAsset recognizes content-hashed bundle names, including the
+// default eight-character Vite hash, whose alphabet itself contains '-'.
+func IsImmutableAsset(name string) bool {
 	base := path.Base(name)
 	extension := path.Ext(base)
 	if extension == "" {
@@ -569,6 +580,9 @@ func isImmutableAsset(name string) bool {
 	}
 	stem := strings.TrimSuffix(base, extension)
 	separator := strings.LastIndexByte(stem, '-')
+	if i := len(stem) - 9; i > 0 && stem[i] == '-' {
+		separator = i
+	}
 	if separator < 0 || len(stem)-separator-1 < 8 {
 		return false
 	}
@@ -643,13 +657,13 @@ func writeAtomic(destination string, payload []byte, mode fs.FileMode) error {
 	return os.Rename(temporaryPath, destination)
 }
 
-func markerMatches(marker, targetDir string, asset releaseAsset) bool {
+func markerMatches(marker, targetDir string, asset releaseAsset, stable map[string]bool) bool {
 	payload, err := os.ReadFile(marker)
 	if err != nil {
 		return false
 	}
 	var recorded releaseMarker
-	if json.Unmarshal(payload, &recorded) != nil || recorded.Archive != asset.Name || recorded.Digest != asset.Digest || len(recorded.Assets) == 0 {
+	if json.Unmarshal(payload, &recorded) != nil || recorded.Version != 2 || recorded.Archive != asset.Name || recorded.Digest != asset.Digest || len(recorded.Assets) == 0 {
 		return false
 	}
 	for name, wantDigest := range recorded.Assets {
@@ -657,9 +671,17 @@ func markerMatches(marker, targetDir string, asset releaseAsset) bool {
 		if cleaned != name || cleaned == "." || path.IsAbs(cleaned) || strings.HasPrefix(cleaned, "../") {
 			return false
 		}
+		if stable[name] {
+			continue
+		}
 		digest, err := fileDigest(filepath.Join(targetDir, "assets", filepath.FromSlash(name)))
 		if err != nil || hex.EncodeToString(digest[:]) != wantDigest {
 			return false
+		}
+	}
+	for name := range recorded.Assets {
+		if !IsImmutableAsset(name) {
+			stable[name] = true
 		}
 	}
 	return true

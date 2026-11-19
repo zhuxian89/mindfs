@@ -94,3 +94,27 @@ func TestBackupCreatesVerifiedSnapshotAndDoesNotOverwrite(t *testing.T) {
 	}
 	_ = database.Close()
 }
+
+func TestBackupRejectsMissingOrEmptySource(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		dir := t.TempDir()
+		source := filepath.Join(dir, "mindfs-cloud.db")
+		if existing {
+			if err := os.WriteFile(source, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		dst := filepath.Join(t.TempDir(), "backup.db")
+		if _, err := Backup(context.Background(), config.Config{DataDir: dir}, dst); err == nil {
+			t.Fatal("empty source accepted")
+		}
+		if _, err := os.Stat(dst); !os.IsNotExist(err) {
+			t.Fatal("invalid destination published", err)
+		}
+		if !existing {
+			if _, err := os.Stat(source); !os.IsNotExist(err) {
+				t.Fatal("missing source was created", err)
+			}
+		}
+	}
+}
