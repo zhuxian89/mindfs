@@ -3,22 +3,47 @@ package gateway
 import (
 	"encoding/binary"
 	"io"
+	"math"
 	"unicode/utf8"
+
+	"github.com/gorilla/websocket"
 )
 
-func writeWSDataFrame(w io.Writer, opcode int, payload []byte) error {
-	if err := setWriteDeadline(w, wsBridgeWriteTimeout); err != nil {
-		return err
+const wsDataHeaderSize = 6
+
+// The tunnel needs the final message length before it can accept the header.
+// Stage small browser messages with room for that header. Only larger messages
+// need a second buffer, which is released after the write.
+func readBrowserFrame(conn *websocket.Conn, scratch []byte, maxMessageBytes int64) (frame, tail []byte, err error) {
+	opcode, reader, err := conn.NextReader()
+	if err != nil {
+		return nil, nil, err
 	}
-	header := make([]byte, 6)
-	header[0] = wsFrameData
-	header[1] = byte(opcode)
-	binary.BigEndian.PutUint32(header[2:], uint32(len(payload)))
-	if _, err := w.Write(header); err != nil {
-		return err
+	frame = scratch[:wsDataHeaderSize]
+	for len(frame) < len(scratch) {
+		n, readErr := reader.Read(scratch[len(frame):])
+		frame = scratch[:len(frame)+n]
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, nil, readErr
+		}
 	}
-	_, err := w.Write(payload)
-	return err
+	if len(frame) == len(scratch) {
+		tail, err = io.ReadAll(reader)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	size := int64(len(frame)-wsDataHeaderSize) + int64(len(tail))
+	if size > maxMessageBytes || size > math.MaxUint32 {
+		return nil, nil, errWSTooLarge
+	}
+	frame[0] = wsFrameData
+	frame[1] = byte(opcode)
+	binary.BigEndian.PutUint32(frame[2:wsDataHeaderSize], uint32(size))
+	return frame, tail, nil
 }
 
 func writeWSCloseFrame(w io.Writer, code int, reason string) error {

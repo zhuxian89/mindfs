@@ -120,33 +120,31 @@ func (h *Handler) ServeWebSocket(w http.ResponseWriter, r *http.Request, maxMess
 }
 
 func bridgePublicToStream(publicWS *websocket.Conn, stream io.Writer, maxMessageBytes int64, results chan<- bridgeResult) {
+	var scratch [4 << 10]byte
 	for {
-		opcode, payload, err := publicWS.ReadMessage()
+		frame, tail, err := readBrowserFrame(publicWS, scratch[:], maxMessageBytes)
 		if err != nil {
 			var closeErr *websocket.CloseError
-			if errors.As(err, &closeErr) {
+			switch {
+			case errors.As(err, &closeErr):
 				_ = writeWSCloseFrame(stream, sanitizeCloseCode(closeErr.Code), closeErr.Text)
 				results <- bridgeResult{publicCloseCode: closeErr.Code}
-				return
-			}
-			if strings.Contains(err.Error(), "read limit") {
+			case errors.Is(err, websocket.ErrReadLimit), errors.Is(err, errWSTooLarge):
 				_ = writeWSCloseFrame(stream, websocket.CloseMessageTooBig, "message_too_big")
-				results <- bridgeResult{err: errWSTooLarge}
-				return
+				results <- bridgeResult{err: errWSTooLarge, closeCode: websocket.CloseMessageTooBig, reason: "message_too_big"}
+			default:
+				results <- bridgeResult{err: err}
 			}
-			results <- bridgeResult{err: err}
 			return
 		}
-		if opcode != websocket.TextMessage && opcode != websocket.BinaryMessage {
-			results <- bridgeResult{err: errWSProtocol, closeCode: websocket.CloseProtocolError, reason: "invalid_opcode"}
-			return
+		err = setWriteDeadline(stream, wsBridgeWriteTimeout)
+		if err == nil {
+			_, err = stream.Write(frame)
 		}
-		if int64(len(payload)) > maxMessageBytes {
-			_ = writeWSCloseFrame(stream, websocket.CloseMessageTooBig, "message_too_big")
-			results <- bridgeResult{err: errWSTooLarge, closeCode: websocket.CloseMessageTooBig, reason: "message_too_big"}
-			return
+		if err == nil && len(tail) != 0 {
+			_, err = stream.Write(tail)
 		}
-		if err := writeWSDataFrame(stream, opcode, payload); err != nil {
+		if err != nil {
 			results <- bridgeResult{err: err}
 			return
 		}

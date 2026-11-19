@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -54,7 +56,11 @@ func TestWebSocketGatewayBridgesTextBinaryAndClose(t *testing.T) {
 				nodeErr <- err
 				return
 			}
-			if err := writeWSDataFrame(node, opcode, body); err != nil {
+			if err := writeTestFrameHeader(node, opcode, len(body)); err != nil {
+				nodeErr <- err
+				return
+			}
+			if _, err := node.Write(body); err != nil {
 				nodeErr <- err
 				return
 			}
@@ -211,5 +217,50 @@ func TestWebSocketFrameLimitIsCheckedBeforeAllocation(t *testing.T) {
 	_, _, _, _, _, err := readWSFrame(strings.NewReader(string(header)), 16)
 	if err != errWSTooLarge {
 		t.Fatalf("readWSFrame() error = %v", err)
+	}
+}
+
+func TestBrowserFramePreservesPayloadAcrossBufferBoundary(t *testing.T) {
+	const limit = 128 << 10
+	sizes := []int{0, 4089, 4090, 4091, limit, 1}
+	ws, done, _ := openStreamingGateway(t, limit, func(node net.Conn) error {
+		node.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for i, size := range sizes {
+			kind, opcode, reader, _, _, err := readWSFrame(node, limit)
+			if err != nil || kind != wsFrameData || opcode != websocket.BinaryMessage || reader.N != int64(size) {
+				return fmt.Errorf("size %d invalid frame header: %v", size, err)
+			}
+			payload, err := io.ReadAll(reader)
+			if err != nil || !bytes.Equal(payload, bytes.Repeat([]byte{byte(i)}, size)) {
+				return fmt.Errorf("size %d invalid payload: %v", size, err)
+			}
+		}
+		return nil
+	})
+	for i, size := range sizes {
+		if err := ws.WriteMessage(websocket.BinaryMessage, bytes.Repeat([]byte{byte(i)}, size)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBrowserFragmentedOverLimitSendsOnlyClose(t *testing.T) {
+	const limit = 12 << 10
+	ws, done, _ := openStreamingGateway(t, limit, func(node net.Conn) error {
+		node.SetReadDeadline(time.Now().Add(5 * time.Second))
+		kind, _, _, code, _, err := readWSFrame(node, limit)
+		if err != nil || kind != wsFrameClose || code != websocket.CloseMessageTooBig {
+			return fmt.Errorf("expected only close 1009, got kind %d code %d: %v", kind, code, err)
+		}
+		return nil
+	})
+	if err := ws.WriteMessage(websocket.BinaryMessage, make([]byte, limit+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
