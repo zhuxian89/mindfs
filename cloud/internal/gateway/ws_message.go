@@ -8,8 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var wsCopyBuffers = sync.Pool{New: func() any { return new([32 << 10]byte) }}
-
 var wsSmallBuffers = [...]struct {
 	size int64
 	pool sync.Pool
@@ -48,8 +46,8 @@ func writePublicMessage(conn *websocket.Conn, opcode int, payload *io.LimitedRea
 	if err != nil {
 		return err
 	}
-	buffer := wsCopyBuffers.Get().(*[32 << 10]byte)
-	defer wsCopyBuffers.Put(buffer)
+	buffer := copyBuffers.Get().(*[32 << 10]byte)
+	defer copyBuffers.Put(buffer)
 	_, err = io.CopyBuffer(wsDeadlineWriter{conn: conn, writer: writer}, payload, buffer[:])
 	if err != nil {
 		return err

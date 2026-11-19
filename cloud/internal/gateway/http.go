@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"mindfs-cloud/internal/connector"
 	"mindfs-cloud/internal/store"
 )
+
+var copyBuffers = sync.Pool{New: func() any { return new([32 << 10]byte) }}
 
 type NodeStore interface {
 	GetNode(context.Context, string) (store.Node, error)
@@ -133,7 +136,12 @@ func writeHTTPResponse(w http.ResponseWriter, r *http.Request, response *http.Re
 			dst = eventStreamWriter{w, controller}
 		}
 	}
-	if _, err := io.Copy(dst, response.Body); err != nil {
+	if response.Body == http.NoBody {
+		return
+	}
+	buffer := copyBuffers.Get().(*[32 << 10]byte)
+	defer copyBuffers.Put(buffer)
+	if _, err := io.CopyBuffer(dst, response.Body, buffer[:]); err != nil {
 		// Headers may already be on the wire. A normal return would finalize a
 		// truncated body as a successful response; abort the HTTP stream instead.
 		log.Printf("relay response interrupted method=%s", r.Method)
@@ -225,7 +233,6 @@ func cloneRequest(r *http.Request, path, forwardedProto string, keepUpgrade bool
 	outbound.URL.Path, _ = url.PathUnescape(path)
 	outbound.URL.RawPath = path
 	outbound.RequestURI = ""
-	outbound.Header = r.Header.Clone()
 	originalHost := r.Host
 	removeHopHeaders(outbound.Header)
 	removeControlCookies(outbound.Header)
