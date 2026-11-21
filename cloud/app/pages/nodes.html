@@ -10,6 +10,7 @@
 <header class="topbar">
   {{template "brand"}}
   <div class="account">
+    {{template "appearance"}}
     <span id="avatar" class="avatar" aria-hidden="true">M</span><p id="user" class="user"></p>
     <details class="menu account-menu"><summary aria-label="账号操作"><span class="account-label">账号</span>{{template "more-icon"}}</summary><div class="menu-panel"><p id="menu-email" class="menu-email"></p><button id="change-password" type="button">修改密码</button><button id="logout" type="button">退出登录</button></div></details>
   </div>
