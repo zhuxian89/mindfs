@@ -103,17 +103,65 @@ func TestHTTPAuthRejectsNonQQAndLegacyLogin(t *testing.T) {
 	}
 }
 
+func TestHTTPAppLoginRenewsPersistentCookieAndLogoutRevokesIt(t *testing.T) {
+	application := newBrowserTestApp(t)
+	registerTestSession(t, application, "app@qq.com", "relay-password")
+	const userAgent = "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 LocalAIAgentApp/0.1.6"
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"app@qq.com","password":"relay-password"}`))
+	login.Header.Set("Origin", application.config.PublicURL.String())
+	login.Header.Set("User-Agent", userAgent)
+	loginResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(loginResponse, login)
+	cookies := loginResponse.Result().Cookies()
+	if loginResponse.Code != http.StatusOK || len(cookies) != 1 {
+		t.Fatalf("App login status=%d, cookie count=%d", loginResponse.Code, len(cookies))
+	}
+	cookie := cookies[0]
+	if cookie.Name != userSessionCookie || cookie.MaxAge != int(identity.AppSessionTTL.Seconds()) ||
+		!cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("App cookie flags: name=%s age=%d HttpOnly=%v Secure=%v SameSite=%v",
+			cookie.Name, cookie.MaxAge, cookie.HttpOnly, cookie.Secure, cookie.SameSite)
+	}
+
+	me := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	me.AddCookie(cookie)
+	renewed := httptest.NewRecorder()
+	application.Handler().ServeHTTP(renewed, me)
+	cookies = renewed.Result().Cookies()
+	if renewed.Code != http.StatusOK || len(cookies) != 1 || cookies[0].Value != cookie.Value || cookies[0].MaxAge != cookie.MaxAge {
+		t.Fatalf("App session renewal status=%d, cookie count=%d", renewed.Code, len(cookies))
+	}
+
+	logout := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logout.Header.Set("Origin", application.config.PublicURL.String())
+	logout.AddCookie(cookie)
+	logoutResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(logoutResponse, logout)
+	if logoutResponse.Code != http.StatusOK {
+		t.Fatalf("App logout status=%d", logoutResponse.Code)
+	}
+	revoked := httptest.NewRecorder()
+	application.Handler().ServeHTTP(revoked, me)
+	if revoked.Code != http.StatusUnauthorized || len(revoked.Result().Cookies()) != 0 {
+		t.Fatalf("App session after logout status=%d", revoked.Code)
+	}
+}
+
 func TestLoginPageContainsPasswordAccountFlowsOnly(t *testing.T) {
 	application := newBrowserTestApp(t)
 	recorder := httptest.NewRecorder()
 	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/login", nil))
 	body := recorder.Body.String()
-	for _, required := range []string{"login-form", "register-form", "reset-form", "Relay 密码"} {
+	for _, required := range []string{
+		"login-form", "register-form", "reset-form", "Relay 密码",
+		`id="login-email" name="email" type="email" autocomplete="username"`,
+		`id="login-password" name="password" type="password" autocomplete="current-password"`,
+	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("login page missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"api/auth/google", "api/auth/github", "api/auth/linuxdo", "QQ 邮箱密码", "username"} {
+	for _, forbidden := range []string{"api/auth/google", "api/auth/github", "api/auth/linuxdo", "QQ 邮箱密码", `name="username"`} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("login page contains %q", forbidden)
 		}

@@ -320,7 +320,7 @@ func (r *compatibilityRun) seedIdentity() error {
 	if mail.code == "" {
 		return errors.New("compat registration produced no verification code")
 	}
-	_, _, err = service.Register(r.ctx, compatEmail, compatPassword, mail.code)
+	_, _, err = service.Register(r.ctx, compatEmail, compatPassword, mail.code, false)
 	return err
 }
 

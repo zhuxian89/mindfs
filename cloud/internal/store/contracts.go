@@ -112,7 +112,7 @@ type Store interface {
 	ResetUserPassword(context.Context, string, []byte, string, time.Time) error
 	ChangeUserPassword(context.Context, string, string, string, UserSession, time.Time) error
 	GetUserByEmail(context.Context, string) (User, error)
-	GetUserBySession(context.Context, []byte, time.Time) (User, UserSession, error)
+	GetUserBySession(ctx context.Context, sessionHash []byte, now, renewUntil time.Time) (User, UserSession, error)
 	DeleteUserSession(context.Context, []byte) error
 	DeleteExpired(context.Context, time.Time) error
 }

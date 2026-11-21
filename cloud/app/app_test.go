@@ -357,7 +357,7 @@ func registerTestSession(t *testing.T, application *App, email, password string)
 	}
 	mail := application.mail.(*testMailSender)
 	code := mail.code(t, email, identity.PurposeRegister)
-	_, token, err := application.identity.Register(context.Background(), email, password, code)
+	_, token, err := application.identity.Register(context.Background(), email, password, code, false)
 	if err != nil {
 		t.Fatal(err)
 	}

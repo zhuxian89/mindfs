@@ -23,7 +23,7 @@ type RelayNodePayload struct {
 }
 
 func (a *App) handleRelayNodesList(w http.ResponseWriter, r *http.Request) {
-	user, _, err := a.authenticateUser(r)
+	user, _, err := a.authenticateUser(w, r)
 	if err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -106,7 +106,7 @@ func (a *App) handleRelayNodeDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) authorizeRelayWrite(w http.ResponseWriter, r *http.Request) (store.User, bool) {
-	user, _, err := a.authenticateUser(r)
+	user, _, err := a.authenticateUser(w, r)
 	if err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})

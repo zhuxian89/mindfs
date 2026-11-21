@@ -90,7 +90,7 @@ func TestV0BootstrapRegistrationClaimsExistingNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := application.mail.(*testMailSender).code(t, cfg.BootstrapEmail, identity.PurposeRegister)
-	registered, _, err := application.identity.Register(context.Background(), cfg.BootstrapEmail, "relay-password", code)
+	registered, _, err := application.identity.Register(context.Background(), cfg.BootstrapEmail, "relay-password", code, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ implements: [mindfs-compatible-cloud-backend]
 - **MindFS Node**：现有 `server` 进程及其 Relay 客户端。它主动连接 Cloud Relay，现有源码保持只读。
 - **Cloud Relay**：`cloud/` 独立 Go module 运行的后端进程，拥有绑定控制面和公网转发数据面。
 - **Cloud User**：以唯一规范化 `@qq.com` 邮箱标识的 Relay 用户；注册时设置 Relay 密码，日常使用邮箱和该密码登录。
-- **Cloud Session**：注册或邮箱密码登录后建立的 12 小时浏览器会话；Cookie 保存随机 Token，SQLite 只保存 hash。
+- **Cloud Session**：注册或邮箱密码登录后建立的会话。普通浏览器期限为 12 小时。Local AI Agent iOS App 登录后获得 30 天不活动期限，使用期间续期。Cookie 保存随机 Token，SQLite 只保存 hash。
 - **Node Owner**：确认绑定时的当前 Cloud User；节点列表、重命名和删除按 owner 隔离。
 - **Bootstrap User**：V0 升级时承接既有节点的 pending QQ 账号；该邮箱完成验证码注册后激活并认领原节点。
 - **Binding Challenge**：Node 生成 code 后由 Cloud Relay 首次观察、当前 Cloud User 确认的一次绑定状态。
@@ -74,7 +74,7 @@ SQLite 拥有七类控制面数据：
 
 - `users`：QQ 邮箱、Argon2id PHC password hash、状态和密码/登录时间；pending bootstrap user 允许空 hash。
 - `email_verification_codes`：按 register/password_reset purpose 隔离的 HMAC code hash、随机 nonce、来源 hash、有效期、冷却和剩余尝试。
-- `user_sessions`：Session hash、user ID、12 小时有效期和最近使用时间。
+- `user_sessions` 保存 Session hash、user ID、到期时间和最近使用时间。App 会话认证时延后到期时间，清理任务按到期时间删除。
 - `auth_rate_limits`：按邮箱和请求来源 HMAC subject 持久化的小时窗口计数。
 - `bind_challenges`：code hash、设备归属、claimed user、状态、node ID、派生版本和有效期。
 - `nodes`：Node 身份、owner user、名称、状态、访问模式和最近在线时间。

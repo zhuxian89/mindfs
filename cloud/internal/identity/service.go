@@ -30,7 +30,9 @@ const (
 	verificationResendDelay = time.Minute
 	verificationAttempts    = 5
 	UserSessionTTL          = 12 * time.Hour
+	AppSessionTTL           = 30 * 24 * time.Hour
 	SessionCookieName       = "mindfs_cloud_session"
+	appSessionTokenPrefix   = "app_us_"
 	hourlyEmailLimit        = 10
 	hourlySourceLimit       = 30
 )
@@ -79,7 +81,7 @@ func (s *Service) RequestRegistrationCode(ctx context.Context, email, source str
 	return s.requestCode(ctx, email, source, PurposeRegister)
 }
 
-func (s *Service) Register(ctx context.Context, email, password, code string) (store.User, string, error) {
+func (s *Service) Register(ctx context.Context, email, password, code string, keepSignedIn bool) (store.User, string, error) {
 	email, err := NormalizeQQEmail(email)
 	if err != nil {
 		return store.User{}, "", ErrEmailNotAllowed
@@ -96,7 +98,7 @@ func (s *Service) Register(ctx context.Context, email, password, code string) (s
 		return store.User{}, "", err
 	}
 	now := s.now()
-	sessionToken, session, err := newSession(now)
+	sessionToken, session, err := newSession(now, keepSignedIn)
 	if err != nil {
 		return store.User{}, "", err
 	}
@@ -122,7 +124,7 @@ func (s *Service) Register(ctx context.Context, email, password, code string) (s
 	return user, sessionToken, nil
 }
 
-func (s *Service) Login(ctx context.Context, email, password, source string) (store.User, string, error) {
+func (s *Service) Login(ctx context.Context, email, password, source string, keepSignedIn bool) (store.User, string, error) {
 	normalized, normalizeErr := NormalizeQQEmail(email)
 	rateEmail := strings.ToLower(strings.TrimSpace(email))
 	if normalizeErr == nil {
@@ -147,7 +149,7 @@ func (s *Service) Login(ctx context.Context, email, password, source string) (st
 		return store.User{}, "", ErrInvalidCredentials
 	}
 	now := s.now()
-	sessionToken, session, err := newSession(now)
+	sessionToken, session, err := newSession(now, keepSignedIn)
 	if err != nil {
 		return store.User{}, "", err
 	}
@@ -202,7 +204,7 @@ func (s *Service) ResetPassword(ctx context.Context, email, code, newPassword st
 	}
 }
 
-func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPassword, newPassword string) (string, error) {
+func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPassword, newPassword string, keepSignedIn bool) (string, error) {
 	matched, err := s.verifyPassword(ctx, user.PasswordHash, currentPassword)
 	if err != nil {
 		return "", err
@@ -218,7 +220,7 @@ func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPa
 		return "", err
 	}
 	now := s.now()
-	sessionToken, session, err := newSession(now)
+	sessionToken, session, err := newSession(now, keepSignedIn)
 	if err != nil {
 		return "", err
 	}
@@ -236,7 +238,12 @@ func (s *Service) Authenticate(ctx context.Context, sessionToken string) (store.
 	if sessionToken == "" {
 		return store.User{}, store.UserSession{}, ErrAuthRequired
 	}
-	user, session, err := s.store.GetUserBySession(ctx, hashToken(sessionToken), s.now())
+	now := s.now()
+	var renewUntil time.Time
+	if IsAppSessionToken(sessionToken) {
+		renewUntil = now.Add(AppSessionTTL)
+	}
+	user, session, err := s.store.GetUserBySession(ctx, hashToken(sessionToken), now, renewUntil)
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrExpired) {
 		return store.User{}, store.UserSession{}, ErrAuthRequired
 	}
@@ -375,14 +382,22 @@ func randomVerificationCode() (string, error) {
 	return fmt.Sprintf("%06d", value.Int64()), nil
 }
 
-func newSession(now time.Time) (string, store.UserSession, error) {
-	token, err := randomToken("us_", 32)
+func IsAppSessionToken(token string) bool {
+	return strings.HasPrefix(token, appSessionTokenPrefix)
+}
+
+func newSession(now time.Time, keepSignedIn bool) (string, store.UserSession, error) {
+	prefix, ttl := "us_", UserSessionTTL
+	if keepSignedIn {
+		prefix, ttl = appSessionTokenPrefix, AppSessionTTL
+	}
+	token, err := randomToken(prefix, 32)
 	if err != nil {
 		return "", store.UserSession{}, err
 	}
 	return token, store.UserSession{
 		SessionHash: hashToken(token),
-		ExpiresAt:   now.Add(UserSessionTTL),
+		ExpiresAt:   now.Add(ttl),
 		CreatedAt:   now,
 		LastSeenAt:  now,
 	}, nil

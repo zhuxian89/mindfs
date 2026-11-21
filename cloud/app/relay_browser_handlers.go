@@ -18,7 +18,7 @@ func (a *App) handleBrowserLogin(w http.ResponseWriter, r *http.Request) {
 	if target == "" {
 		target = "/nodes"
 	}
-	if _, _, err := a.authenticateUser(r); err == nil {
+	if _, _, err := a.authenticateUser(w, r); err == nil {
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	} else if !errors.Is(err, identity.ErrAuthRequired) {
@@ -32,7 +32,7 @@ func (a *App) handleBrowserLogin(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleBrowserNodes(w http.ResponseWriter, r *http.Request) {
 	setBrowserNoStoreHeaders(w)
-	if _, _, err := a.authenticateUser(r); errors.Is(err, identity.ErrAuthRequired) {
+	if _, _, err := a.authenticateUser(w, r); errors.Is(err, identity.ErrAuthRequired) {
 		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 		return
 	} else if err != nil {
@@ -45,7 +45,7 @@ func (a *App) handleBrowserNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleBrowserAuthStatus(w http.ResponseWriter, r *http.Request) {
-	user, _, err := a.authenticateUser(r)
+	user, _, err := a.authenticateUser(w, r)
 	if err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})

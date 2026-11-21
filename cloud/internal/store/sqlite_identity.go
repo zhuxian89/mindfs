@@ -340,7 +340,7 @@ func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (User, e
 	return getUserByEmail(ctx, s.db, email)
 }
 
-func (s *SQLiteStore) GetUserBySession(ctx context.Context, sessionHash []byte, now time.Time) (User, UserSession, error) {
+func (s *SQLiteStore) GetUserBySession(ctx context.Context, sessionHash []byte, now, renewUntil time.Time) (User, UserSession, error) {
 	const query = "SELECT u.id, u.email, u.password_hash, u.status, u.created_at, u.password_changed_at, u.last_login_at, " +
 		"s.session_hash, s.user_id, s.expires_at, s.created_at, s.last_seen_at " +
 		"FROM user_sessions s JOIN users u ON u.id = s.user_id WHERE s.session_hash = ?"
@@ -375,8 +375,24 @@ func (s *SQLiteStore) GetUserBySession(ctx context.Context, sessionHash []byte, 
 	session.CreatedAt = fromMillis(sessionCreated)
 	session.LastSeenAt = fromMillis(sessionLastSeen)
 	if user.Status != "active" || !now.Before(session.ExpiresAt) {
-		_, _ = s.db.ExecContext(ctx, "DELETE FROM user_sessions WHERE session_hash = ?", sessionHash)
+		_, _ = s.db.ExecContext(ctx, "DELETE FROM user_sessions WHERE session_hash = ? AND expires_at = ?", sessionHash, sessionExpires)
 		return User{}, UserSession{}, ErrExpired
+	}
+	if !renewUntil.IsZero() {
+		err := s.db.QueryRowContext(ctx, `UPDATE user_sessions
+			SET last_seen_at = MAX(last_seen_at, ?), expires_at = MAX(expires_at, ?)
+			WHERE session_hash = ? AND expires_at > ?
+			RETURNING last_seen_at, expires_at`, toMillis(now), toMillis(renewUntil), sessionHash, toMillis(now)).
+			Scan(&sessionLastSeen, &sessionExpires)
+		if errors.Is(err, sql.ErrNoRows) {
+			return User{}, UserSession{}, ErrNotFound
+		}
+		if err != nil {
+			return User{}, UserSession{}, err
+		}
+		session.LastSeenAt = fromMillis(sessionLastSeen)
+		session.ExpiresAt = fromMillis(sessionExpires)
+		return user, session, nil
 	}
 	if _, err := s.db.ExecContext(ctx, "UPDATE user_sessions SET last_seen_at = ? WHERE session_hash = ?", toMillis(now), sessionHash); err != nil {
 		return User{}, UserSession{}, err

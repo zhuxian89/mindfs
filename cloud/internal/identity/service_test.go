@@ -50,7 +50,7 @@ func TestRegistrationThenPasswordLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := mail.latest(t)
-	user, sessionToken, err := service.Register(ctx, "user@qq.com", "relay-password", code.code)
+	user, sessionToken, err := service.Register(ctx, "user@qq.com", "relay-password", code.code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,13 +60,52 @@ func TestRegistrationThenPasswordLogin(t *testing.T) {
 	if _, _, err := service.Authenticate(ctx, sessionToken); err != nil {
 		t.Fatalf("Authenticate() error = %v", err)
 	}
-	loggedIn, loginToken, err := service.Login(ctx, "user@qq.com", "relay-password", "source-b")
+	loggedIn, loginToken, err := service.Login(ctx, "user@qq.com", "relay-password", "source-b", false)
 	if err != nil || loggedIn.ID != user.ID || loginToken == "" {
 		t.Fatalf("Login() = %#v %q %v", loggedIn, loginToken, err)
 	}
 	stored, err := database.GetUserByEmail(ctx, "user@qq.com")
 	if err != nil || stored.PasswordHash == "relay-password" {
 		t.Fatalf("stored user = %#v err=%v", stored, err)
+	}
+}
+
+func TestAppSessionRenewsUntilInactiveForThirtyDays(t *testing.T) {
+	service, mail, database := newTestService(t)
+	ctx := context.Background()
+	now := service.now()
+	service.now = func() time.Time { return now }
+	if _, err := service.RequestRegistrationCode(ctx, "user@qq.com", "register"); err != nil {
+		t.Fatal(err)
+	}
+	_, browserToken, err := service.Register(ctx, "user@qq.com", "relay-password", mail.latest(t).code, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, appToken, err := service.Login(ctx, "user@qq.com", "relay-password", "app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(2 * 24 * time.Hour)
+	if _, _, err := service.Authenticate(ctx, browserToken); !errors.Is(err, ErrAuthRequired) {
+		t.Fatalf("browser session should expire at 12 hours, got %v", err)
+	}
+	if _, session, err := service.Authenticate(ctx, appToken); err != nil || !session.ExpiresAt.Equal(now.Add(AppSessionTTL)) {
+		t.Fatalf("App expiry after first renewal = %v, err=%v", session.ExpiresAt, err)
+	}
+
+	now = now.Add(29 * 24 * time.Hour)
+	if err := database.DeleteExpired(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, session, err := service.Authenticate(ctx, appToken); err != nil || !session.ExpiresAt.Equal(now.Add(AppSessionTTL)) {
+		t.Fatalf("App expiry past original 30-day deadline = %v, err=%v", session.ExpiresAt, err)
+	}
+
+	now = now.Add(AppSessionTTL)
+	if _, _, err := service.Authenticate(ctx, appToken); !errors.Is(err, ErrAuthRequired) {
+		t.Fatalf("inactive App session should expire and stay expired, got %v", err)
 	}
 }
 
@@ -90,10 +129,10 @@ func TestVerificationPurposeAndReplay(t *testing.T) {
 	if err := service.ResetPassword(ctx, "user@qq.com", code, "new-password"); !errors.Is(err, ErrCodeInvalid) {
 		t.Fatalf("ResetPassword(register code) error = %v", err)
 	}
-	if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", code); err != nil {
+	if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", code, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := service.Register(ctx, "user@qq.com", "another-password", code); !errors.Is(err, ErrCodeInvalid) && !errors.Is(err, ErrEmailTaken) {
+	if _, _, err := service.Register(ctx, "user@qq.com", "another-password", code, false); !errors.Is(err, ErrCodeInvalid) && !errors.Is(err, ErrEmailTaken) {
 		t.Fatalf("Register(replay) error = %v", err)
 	}
 }
@@ -121,11 +160,11 @@ func TestPasswordResetRevokesSessions(t *testing.T) {
 	service, mail, _ := newTestService(t)
 	ctx := context.Background()
 	_, _ = service.RequestRegistrationCode(ctx, "user@qq.com", "source-register")
-	_, firstSession, err := service.Register(ctx, "user@qq.com", "relay-password", mail.latest(t).code)
+	_, firstSession, err := service.Register(ctx, "user@qq.com", "relay-password", mail.latest(t).code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, secondSession, err := service.Login(ctx, "user@qq.com", "relay-password", "source-login")
+	_, secondSession, err := service.Login(ctx, "user@qq.com", "relay-password", "source-login", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,10 +180,10 @@ func TestPasswordResetRevokesSessions(t *testing.T) {
 			t.Fatalf("old session Authenticate() error = %v", err)
 		}
 	}
-	if _, _, err := service.Login(ctx, "user@qq.com", "relay-password", "source-old"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, _, err := service.Login(ctx, "user@qq.com", "relay-password", "source-old", false); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("old password Login() error = %v", err)
 	}
-	if _, _, err := service.Login(ctx, "user@qq.com", "new-password", "source-new"); err != nil {
+	if _, _, err := service.Login(ctx, "user@qq.com", "new-password", "source-new", false); err != nil {
 		t.Fatalf("new password Login() error = %v", err)
 	}
 }
@@ -153,15 +192,15 @@ func TestChangePasswordRotatesCurrentAndRevokesOtherSessions(t *testing.T) {
 	service, mail, _ := newTestService(t)
 	ctx := context.Background()
 	_, _ = service.RequestRegistrationCode(ctx, "user@qq.com", "register")
-	user, firstSession, err := service.Register(ctx, "user@qq.com", "relay-password", mail.latest(t).code)
+	user, firstSession, err := service.Register(ctx, "user@qq.com", "relay-password", mail.latest(t).code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, secondSession, err := service.Login(ctx, "user@qq.com", "relay-password", "login")
+	_, secondSession, err := service.Login(ctx, "user@qq.com", "relay-password", "login", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	newSession, err := service.ChangePassword(ctx, user, "relay-password", "changed-password")
+	newSession, err := service.ChangePassword(ctx, user, "relay-password", "changed-password", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +212,7 @@ func TestChangePasswordRotatesCurrentAndRevokesOtherSessions(t *testing.T) {
 	if _, _, err := service.Authenticate(ctx, newSession); err != nil {
 		t.Fatalf("new session Authenticate() error = %v", err)
 	}
-	if _, _, err := service.Login(ctx, "user@qq.com", "changed-password", "changed"); err != nil {
+	if _, _, err := service.Login(ctx, "user@qq.com", "changed-password", "changed", false); err != nil {
 		t.Fatalf("changed password Login() error = %v", err)
 	}
 }
@@ -189,11 +228,11 @@ func TestVerificationCodeAttemptsAndCooldown(t *testing.T) {
 		t.Fatalf("second RequestRegistrationCode() error = %v", err)
 	}
 	for index := 0; index < verificationAttempts; index++ {
-		if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", "000000"); !errors.Is(err, ErrCodeInvalid) {
+		if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", "000000", false); !errors.Is(err, ErrCodeInvalid) {
 			t.Fatalf("wrong code attempt %d error = %v", index+1, err)
 		}
 	}
-	if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", code); !errors.Is(err, ErrCodeInvalid) {
+	if _, _, err := service.Register(ctx, "user@qq.com", "relay-password", code, false); !errors.Is(err, ErrCodeInvalid) {
 		t.Fatalf("correct code after attempts error = %v", err)
 	}
 }
@@ -211,7 +250,7 @@ func TestConcurrentRegistrationConsumesCodeOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := service.Register(ctx, "user@qq.com", "relay-password", code)
+			_, _, err := service.Register(ctx, "user@qq.com", "relay-password", code, false)
 			errorsCh <- err
 		}()
 	}

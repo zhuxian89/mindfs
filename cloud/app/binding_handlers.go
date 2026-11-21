@@ -57,7 +57,7 @@ func (a *App) handleBindPoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleBindStatus(w http.ResponseWriter, r *http.Request) {
-	if _, _, err := a.authenticateUser(r); err != nil {
+	if _, _, err := a.authenticateUser(w, r); err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondError(w, r, http.StatusUnauthorized, "auth_required", "authentication required")
 		} else {
@@ -81,7 +81,7 @@ func (a *App) handleBindStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleBindConfirm(w http.ResponseWriter, r *http.Request) {
-	user, _, err := a.authenticateUser(r)
+	user, _, err := a.authenticateUser(w, r)
 	if err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondError(w, r, http.StatusUnauthorized, "auth_required", "authentication required")

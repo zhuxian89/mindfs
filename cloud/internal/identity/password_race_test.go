@@ -26,7 +26,7 @@ func TestPasswordResetRejectsInflightOldPasswordLogin(t *testing.T) {
 	if _, err := service.RequestRegistrationCode(ctx, "user@qq.com", "test-source"); err != nil {
 		t.Fatal(err)
 	}
-	_, oldSession, err := service.Register(ctx, "user@qq.com", "old-password", mail.latest(t).code)
+	_, oldSession, err := service.Register(ctx, "user@qq.com", "old-password", mail.latest(t).code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestPasswordResetRejectsInflightOldPasswordLogin(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		_, token, err := service.Login(ctx, "user@qq.com", "old-password", "login-source")
+		_, token, err := service.Login(ctx, "user@qq.com", "old-password", "login-source", false)
 		done <- result{token, err}
 	}()
 	select {
@@ -71,7 +71,7 @@ func TestChangePasswordCannotOverwriteConcurrentReset(t *testing.T) {
 	if _, err := service.RequestRegistrationCode(ctx, "user@qq.com", "register"); err != nil {
 		t.Fatal(err)
 	}
-	user, _, err := service.Register(ctx, "user@qq.com", "old-password", mail.latest(t).code)
+	user, _, err := service.Register(ctx, "user@qq.com", "old-password", mail.latest(t).code, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +82,10 @@ func TestChangePasswordCannotOverwriteConcurrentReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An already authenticated request can still hold the old User snapshot.
-	if _, err := service.ChangePassword(ctx, user, "old-password", "overwrite-password"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.ChangePassword(ctx, user, "old-password", "overwrite-password", false); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("stale password change accepted: %v", err)
 	}
-	if _, _, err := service.Login(ctx, "user@qq.com", "reset-password", "login"); err != nil {
+	if _, _, err := service.Login(ctx, "user@qq.com", "reset-password", "login", false); err != nil {
 		t.Fatalf("reset password lost: %v", err)
 	}
 }

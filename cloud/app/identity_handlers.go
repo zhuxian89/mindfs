@@ -42,7 +42,7 @@ func (a *App) handleRegistration(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	user, token, err := a.identity.Register(r.Context(), input.Email, input.Password, input.Code)
+	user, token, err := a.identity.Register(r.Context(), input.Email, input.Password, input.Code, isLocalAIAgentApp(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -62,7 +62,7 @@ func (a *App) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	user, token, err := a.identity.Login(r.Context(), input.Email, input.Password, a.requestSource(r))
+	user, token, err := a.identity.Login(r.Context(), input.Email, input.Password, a.requestSource(r), isLocalAIAgentApp(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -108,7 +108,7 @@ func (a *App) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
-	user, _, err := a.authenticateUser(r)
+	user, _, err := a.authenticateUser(w, r)
 	if err != nil {
 		if errors.Is(err, identity.ErrAuthRequired) {
 			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -128,7 +128,7 @@ func (a *App) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	token, err := a.identity.ChangePassword(r.Context(), user, input.CurrentPassword, input.NewPassword)
+	token, err := a.identity.ChangePassword(r.Context(), user, input.CurrentPassword, input.NewPassword, isLocalAIAgentApp(r))
 	if handleIdentityError(w, err) {
 		return
 	}
@@ -136,15 +136,32 @@ func (a *App) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-func (a *App) authenticateUser(r *http.Request) (store.User, store.UserSession, error) {
+func isLocalAIAgentApp(r *http.Request) bool {
+	for _, part := range strings.Fields(r.UserAgent()) {
+		if strings.HasPrefix(part, "LocalAIAgentApp/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) authenticateUser(w http.ResponseWriter, r *http.Request) (store.User, store.UserSession, error) {
 	cookie, err := r.Cookie(userSessionCookie)
 	if err != nil {
 		return store.User{}, store.UserSession{}, identity.ErrAuthRequired
 	}
-	return a.identity.Authenticate(r.Context(), cookie.Value)
+	user, session, err := a.identity.Authenticate(r.Context(), cookie.Value)
+	if err == nil && r.Method == http.MethodGet && identity.IsAppSessionToken(cookie.Value) {
+		a.setUserSessionCookie(w, cookie.Value)
+	}
+	return user, session, err
 }
 
 func (a *App) setUserSessionCookie(w http.ResponseWriter, token string) {
+	ttl := identity.UserSessionTTL
+	if identity.IsAppSessionToken(token) {
+		ttl = identity.AppSessionTTL
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     userSessionCookie,
 		Value:    token,
@@ -152,7 +169,7 @@ func (a *App) setUserSessionCookie(w http.ResponseWriter, token string) {
 		HttpOnly: true,
 		Secure:   a.config.PublicURL.Scheme == "https",
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(identity.UserSessionTTL.Seconds()),
+		MaxAge:   int(ttl.Seconds()),
 	})
 }
 
